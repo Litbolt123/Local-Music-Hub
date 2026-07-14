@@ -141,3 +141,7 @@ foreach ($root in $shortcutRoots) {
 }
 
 Write-Host "Done. Shortcuts now launch: $installExe"
+
+# robocopy uses 0-7 for success; a code of 1+ is normal after copy. Normalize so callers/CI do not fail.
+if ($LASTEXITCODE -gt 7) { exit $LASTEXITCODE }
+exit 0

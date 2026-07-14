@@ -34,4 +34,9 @@ finally {
 
 $ver = & (Join-Path $repoRoot 'scripts\get-version.ps1')
 Write-Host "Published (installer build) to: $publishDir (Version $ver)"
-& (Join-Path $repoRoot 'scripts\update-windows-shortcuts.ps1') -SourceDir $publishDir
+if ($env:GITHUB_ACTIONS -ne 'true') {
+    & (Join-Path $repoRoot 'scripts\update-windows-shortcuts.ps1') -SourceDir $publishDir
+}
+else {
+    Write-Host "Skipping shortcut sync on GitHub Actions."
+}

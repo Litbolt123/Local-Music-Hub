@@ -1,0 +1,132 @@
+<Window x:Class="LocalMusicHub.AlbumEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Edit album"
+        Height="720" Width="780"
+        MinHeight="600" MinWidth="680"
+        Background="{DynamicResource HubBgBrush}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        AllowDrop="True"
+        Drop="Window_OnDrop"
+        DragOver="Window_OnDragOver">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Margin="0,0,0,12">
+            <TextBlock Text="Edit album" Style="{DynamicResource HubSectionTitle}" FontSize="18"/>
+            <TextBlock x:Name="SubtitleText" Style="{DynamicResource HubHintText}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.1*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Metadata -->
+            <Border Style="{DynamicResource HubCardBorder}" Padding="14">
+                <StackPanel>
+                    <TextBlock Text="Album details" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,10"/>
+                    <TextBlock Text="Album artist" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="AlbumArtistBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,12"/>
+                    <TextBlock Text="Album" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="AlbumBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,12"/>
+                    <TextBlock x:Name="TrackCountText" Style="{DynamicResource HubHintText}" TextWrapping="Wrap"
+                               Text="Changes apply to all tracks on this album."/>
+                </StackPanel>
+            </Border>
+
+            <!-- Cover -->
+            <Border Grid.Column="2" Style="{DynamicResource HubCardBorder}" Padding="14">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Cover art" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,10"/>
+                    <TextBlock x:Name="CoverStatusText" DockPanel.Dock="Bottom" Style="{DynamicResource HubHintText}"
+                               TextWrapping="Wrap" Margin="0,10,0,0"
+                               Text="Drop an image here, or use the buttons below."/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <Border Width="220" Height="220" HorizontalAlignment="Center"
+                                    CornerRadius="8" Background="{DynamicResource HubMetricBgBrush}"
+                                    ClipToBounds="True" Margin="0,0,0,12"
+                                    AllowDrop="True" Drop="Window_OnDrop" DragOver="Window_OnDragOver"
+                                    ToolTip="Drop an image file here">
+                                <Grid>
+                                    <TextBlock Text="♪" FontSize="48" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource HubTextMutedBrush}"/>
+                                    <Image x:Name="PreviewImage" Stretch="Uniform"/>
+                                </Grid>
+                            </Border>
+
+                            <WrapPanel Margin="0,0,0,8">
+                                <Button Content="Choose image…" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                        Click="ChooseImage_OnClick"/>
+                                <Button Content="Paste" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                        Click="Paste_OnClick" ToolTip="Paste image from clipboard"/>
+                                <Button Content="Fetch online…" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                        Click="FetchOnline_OnClick"
+                                        ToolTip="Look up cover on Apple Music / Deezer"/>
+                                <Button Content="Reset" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                        Click="ResetCover_OnClick" ToolTip="Restore the original cover"/>
+                                <Button Content="Remove" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                        Click="RemoveCover_OnClick" ToolTip="Clear cover art from the album"/>
+                            </WrapPanel>
+
+                            <WrapPanel Margin="0,0,0,10">
+                                <Button Content="⟲ 90°" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                        Click="RotateLeft_OnClick"/>
+                                <Button Content="⟳ 90°" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                        Click="RotateRight_OnClick"/>
+                                <Button Content="Center" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                        Click="Center_OnClick"/>
+                            </WrapPanel>
+
+                            <TextBlock Text="Horizontal shift" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
+                            <Slider x:Name="OffsetXSlider" Minimum="-1" Maximum="1" Value="0"
+                                    ValueChanged="Preview_OnChanged"/>
+                            <TextBlock Text="Vertical shift" Style="{DynamicResource HubHintText}" Margin="0,8,0,4"/>
+                            <Slider x:Name="OffsetYSlider" Minimum="-1" Maximum="1" Value="0"
+                                    ValueChanged="Preview_OnChanged"/>
+                            <TextBlock Text="Zoom" Style="{DynamicResource HubHintText}" Margin="0,8,0,4"/>
+                            <Slider x:Name="ZoomSlider" Minimum="1" Maximum="3" Value="1" TickFrequency="0.05"
+                                    ValueChanged="Preview_OnChanged"/>
+
+                            <TextBlock Text="Output size" Style="{DynamicResource HubHintText}" Margin="0,12,0,4"/>
+                            <ComboBox x:Name="OutputSizeBox" MinHeight="28" SelectedIndex="1">
+                                <ComboBoxItem Content="600 px" Tag="600"/>
+                                <ComboBoxItem Content="800 px" Tag="800"/>
+                                <ComboBoxItem Content="1000 px" Tag="1000"/>
+                                <ComboBoxItem Content="1200 px" Tag="1200"/>
+                            </ComboBox>
+
+                            <TextBlock Text="JPEG quality" Style="{DynamicResource HubHintText}" Margin="0,10,0,4"/>
+                            <DockPanel>
+                                <TextBlock x:Name="QualityLabel" DockPanel.Dock="Right" Width="36" Text="90"
+                                           Style="{DynamicResource HubHintText}" VerticalAlignment="Center"/>
+                                <Slider x:Name="QualitySlider" Minimum="60" Maximum="100" Value="90"
+                                        ValueChanged="Quality_OnChanged"/>
+                            </DockPanel>
+
+                            <CheckBox x:Name="UpdateCoverBox" Style="{DynamicResource HubSimpleCheckBox}" Margin="0,14,0,0"
+                                      Content="Update cover on save" IsChecked="True"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <TextBlock x:Name="StatusText" Grid.Row="2" Style="{DynamicResource HubHintText}" Margin="0,10,0,0"/>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Cancel" Style="{DynamicResource HubToolbarButton}" IsCancel="True" Padding="14,8"/>
+            <Button Content="Save album" Style="{DynamicResource HubPrimaryButton}" IsDefault="True" Padding="16,8"
+                    Click="Save_OnClick"/>
+        </StackPanel>
+    </Grid>
+</Window>

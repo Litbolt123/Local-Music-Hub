@@ -1,0 +1,11 @@
+<UserControl x:Class="LocalMusicHub.StarRatingControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Height="22" Cursor="Hand"
+             Background="Transparent"
+             MouseMove="OnMouseMove"
+             MouseLeave="OnMouseLeave"
+             MouseLeftButtonUp="OnMouseLeftButtonUp"
+             ToolTip="Rate this track">
+    <StackPanel x:Name="StarsHost" Orientation="Horizontal" Background="Transparent"/>
+</UserControl>

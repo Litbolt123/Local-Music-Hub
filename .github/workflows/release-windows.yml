@@ -1,0 +1,112 @@
+name: Windows installer
+
+run-name: "${{ github.ref_type == 'tag' && format('Local Music Hub {0} - Windows installer', github.ref_name) || format('Local Music Hub - Windows installer (manual {0})', github.ref_name) }}"
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (Test-Path -LiteralPath $iscc) {
+            Write-Host "Inno Setup 6 already present: $iscc"
+            exit 0
+          }
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Read version from MSBuild (Directory.Build.props)
+        id: version
+        shell: pwsh
+        run: |
+          $ver = dotnet msbuild src/LocalMusicHub/LocalMusicHub.csproj -nologo -getProperty:Version
+          if ($LASTEXITCODE -ne 0) { throw "dotnet msbuild -getProperty:Version failed: $LASTEXITCODE" }
+          $ver = ($ver | Out-String).Trim()
+          if ([string]::IsNullOrWhiteSpace($ver)) { throw "MSBuild returned empty Version" }
+          Write-Host "MSBuild Version: $ver"
+          "app_version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Prerelease flag (semver prerelease in Version)
+        id: release_meta
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.app_version }}"
+          $isPre = [bool]($v -match '^\d+(\.\d+)*-.+$')
+          Write-Host "Version '$v' -> GitHub prerelease=$isPre"
+          "prerelease=$($isPre.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Verify tag matches Version (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref }}" -replace '^refs/tags/v',''
+          $ver = "${{ steps.version.outputs.app_version }}"
+          if ($tag -ne $ver) {
+            throw "Git tag is 'v$tag' but MSBuild Version is '$ver'. Bump Version in Directory.Build.props or retag."
+          }
+
+      - name: Publish (self-contained for installer)
+        run: .\scripts\publish-installer.ps1
+        shell: pwsh
+
+      - name: Compile Inno Setup
+        working-directory: installer
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          & $iscc /DAppVersion=${{ steps.version.outputs.app_version }} .\LocalMusicHub.iss
+        shell: pwsh
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalMusicHub-Setup-${{ steps.version.outputs.app_version }}
+          path: installer/Output/*.exe
+
+      - name: Verify release notes file (tag builds)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $p = "docs/RELEASE_BODY.md"
+          if (-not (Test-Path -LiteralPath $p)) {
+            throw "Missing $p — create it before pushing the tag. See docs/releasing.md."
+          }
+          $t = (Get-Content -LiteralPath $p -Raw).Trim()
+          if ($t.Length -lt 80) {
+            throw "$p is too short — write a proper release description. See docs/releasing.md."
+          }
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Local Music Hub ${{ steps.version.outputs.app_version }} - Windows installer"
+          files: installer/Output/*.exe
+          body_path: docs/RELEASE_BODY.md
+          generate_release_notes: false
+          prerelease: ${{ steps.release_meta.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.release_meta.outputs.prerelease != 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

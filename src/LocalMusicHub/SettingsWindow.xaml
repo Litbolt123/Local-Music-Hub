@@ -1,0 +1,234 @@
+<Window x:Class="LocalMusicHub.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings"
+        Height="680" Width="560"
+        MinWidth="520" MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="{DynamicResource HubBgBrush}">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Style="{DynamicResource HubCardBorder}" Padding="16">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Library" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <TextBlock Text="Primary music folder" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="PrimaryFolderBox" Height="30" Style="{DynamicResource HubTextBox}"
+                                 VerticalContentAlignment="Center" Padding="8,0" IsReadOnly="True"/>
+                        <Button Grid.Column="1" Content="Browse…" Margin="8,0,0,0" Padding="12,6"
+                                Style="{DynamicResource HubToolbarButton}" Click="BrowsePrimaryFolder_OnClick"/>
+                    </Grid>
+                    <TextBlock Text="Additional library folders (one per line)" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="ExtraFoldersBox" Height="72" AcceptsReturn="True" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto" Style="{DynamicResource HubTextBox}" Margin="0,0,0,8"/>
+                    <CheckBox x:Name="WatchFoldersBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Watch library folders for new music"/>
+                    <CheckBox x:Name="RescanOnSaveBox" Style="{DynamicResource HubSimpleCheckBox}" Margin="0,0,0,16"
+                              Content="Always rescan library on save (folders already rescanned when they change)"/>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="YouTube Downloader" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="IntegrateDownloaderBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Link with YouTube Downloader (read settings + watch its music folder)"/>
+                    <CheckBox x:Name="ShowDownloaderSidebarBox" Style="{DynamicResource HubSimpleCheckBox}" Margin="0,0,0,4"
+                              Content="Show YouTube Downloader panel in sidebar"/>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,8" TextWrapping="Wrap"
+                               Text="When enabled, Local Music Hub adds the downloader's music output folder and auto-imports new tracks. Hide the sidebar panel if you only use the browser extension or another workflow."/>
+                    <TextBlock Text="Downloader music folder" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="DownloaderMusicFolderBox" Height="30" Style="{DynamicResource HubTextBox}"
+                                 VerticalContentAlignment="Center" Padding="8,0" IsReadOnly="True"/>
+                        <Button Grid.Column="1" Content="Open…" Margin="8,0,0,0" Padding="12,6"
+                                Style="{DynamicResource HubToolbarButton}" Click="OpenDownloaderMusicFolder_OnClick"/>
+                    </Grid>
+                    <WrapPanel Margin="0,0,0,8">
+                        <Button Content="Open downloader settings folder" Style="{DynamicResource HubToolbarButton}"
+                                Click="OpenDownloaderData_OnClick"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="DownloaderStatusText" Style="{DynamicResource HubHintText}" Margin="0,0,0,16" TextWrapping="Wrap"/>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="Playback" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Default volume" Width="120" Style="{DynamicResource HubSettingLabel}"/>
+                        <Slider x:Name="DefaultVolumeSlider" Width="200" Minimum="0" Maximum="1" TickFrequency="0.1"
+                                Style="{DynamicResource HubVolumeSlider}"
+                                IsSnapToTickEnabled="False" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="DefaultVolumeLabel" Margin="10,0,0,0" Style="{DynamicResource HubHintText}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Text="Output backend" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="OutputBackendBox" Margin="0,0,0,8" MinHeight="28">
+                        <ComboBoxItem Content="WaveOut (default)" Tag="waveout"/>
+                        <ComboBoxItem Content="WASAPI" Tag="wasapi"/>
+                    </ComboBox>
+                    <TextBlock Text="Output device" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="OutputDeviceBox" Margin="0,0,0,8" MinHeight="28"/>
+                    <TextBlock Text="ReplayGain" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="ReplayGainBox" Margin="0,0,0,8" MinHeight="28">
+                        <ComboBoxItem Content="Off" Tag="off"/>
+                        <ComboBoxItem Content="Track gain" Tag="track"/>
+                        <ComboBoxItem Content="Album gain" Tag="album"/>
+                    </ComboBox>
+                    <TextBlock Text="EQ preset" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="EqPresetBox" Margin="0,0,0,8" MinHeight="28">
+                        <ComboBoxItem Content="Flat" Tag="flat"/>
+                        <ComboBoxItem Content="Bass boost" Tag="bass"/>
+                        <ComboBoxItem Content="Vocal" Tag="vocal"/>
+                        <ComboBoxItem Content="Treble" Tag="treble"/>
+                        <ComboBoxItem Content="Custom" Tag="custom"/>
+                    </ComboBox>
+                    <Button Content="Customize EQ…" Style="{DynamicResource HubToolbarButton}" HorizontalAlignment="Left"
+                            Click="CustomizeEq_OnClick" Margin="0,0,0,8"
+                            ToolTip="Open the 10-band equalizer editor"/>
+                    <CheckBox x:Name="GaplessBox" Style="{DynamicResource HubSimpleCheckBox}" Content="Gapless playback"/>
+                    <CheckBox x:Name="CrossfadeBox" Style="{DynamicResource HubSimpleCheckBox}" Content="Crossfade between tracks"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Crossfade (sec)" Width="120" Style="{DynamicResource HubSettingLabel}" VerticalAlignment="Center"/>
+                        <TextBox x:Name="CrossfadeSecondsBox" Width="60" Style="{DynamicResource HubTextBox}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <TextBlock Text="Playback speed" Width="120" Style="{DynamicResource HubSettingLabel}" VerticalAlignment="Center"/>
+                        <Slider x:Name="PlaybackSpeedSlider" Width="200" Minimum="0.5" Maximum="2" TickFrequency="0.25"
+                                IsSnapToTickEnabled="True" Style="{DynamicResource HubVolumeSlider}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="PlaybackSpeedLabel" Margin="10,0,0,0" Style="{DynamicResource HubHintText}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,16" TextWrapping="Wrap"
+                               Text="Speed changes pitch together with tempo (simple resampling). Use 1.0× for normal playback."/>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="Presence &amp; scrobbling" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="DiscordPresenceBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Show now playing on Discord (Rich Presence)"/>
+                    <TextBlock Text="Discord Application Client ID" Style="{DynamicResource HubSettingLabel}" Margin="0,8,0,4"/>
+                    <TextBox x:Name="DiscordClientIdBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,4"/>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,12" TextWrapping="Wrap"
+                               Text="Create an app at discord.com/developers/applications and paste its Application ID. Add a Rich Presence asset named music (optional)."/>
+
+                    <CheckBox x:Name="LastFmBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Scrobble to Last.fm"/>
+                    <TextBlock Text="API key" Style="{DynamicResource HubSettingLabel}" Margin="0,8,0,4"/>
+                    <TextBox x:Name="LastFmApiKeyBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,8"/>
+                    <TextBlock Text="API secret" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="LastFmApiSecretBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,8"/>
+                    <TextBlock Text="Username" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="LastFmUsernameBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,8"/>
+                    <TextBlock Text="Password (used once to create session)" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <PasswordBox x:Name="LastFmPasswordBox" Margin="0,0,0,8" Height="30" Padding="8,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button Content="Connect Last.fm…" Style="{DynamicResource HubToolbarButton}" Click="ConnectLastFm_OnClick"/>
+                        <TextBlock x:Name="LastFmStatusText" Style="{DynamicResource HubHintText}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    </StackPanel>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,16" TextWrapping="Wrap"
+                               Text="Create an API account at last.fm/api. Password is not stored — only a session key is saved after Connect."/>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="Lyrics" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="AutoDownloadLyricsBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Download lyrics in the background (LRCLIB)"/>
+                    <CheckBox x:Name="EmbedLyricsInTagsBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Also embed plain lyrics into file tags when downloading"/>
+                    <CheckBox x:Name="MarkNewImportsAsInboxBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Mark newly imported tracks as inbox"/>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,6,0,8" TextWrapping="Wrap"
+                               Text="Fetches from lrclib.net when tracks are imported, scanned, or played. Saves a .lrc/.txt next to the file when possible. Synced LRC stays in sidecars for highlighting."/>
+                    <Button x:Name="DownloadAllLyricsButton" Content="Download lyrics for all tracks…"
+                            Style="{DynamicResource HubToolbarButton}" HorizontalAlignment="Left"
+                            Click="DownloadAllLyrics_OnClick" Margin="0,0,0,6"
+                            ToolTip="Queue LRCLIB downloads for tracks missing lyrics (skips known misses)"/>
+                    <Button x:Name="RetryFailedLyricsButton" Content="Retry failed lyrics…"
+                            Style="{DynamicResource HubToolbarButton}" HorizontalAlignment="Left"
+                            Click="RetryFailedLyrics_OnClick" Margin="0,0,0,6"
+                            ToolTip="Re-fetch tracks previously marked as not found on LRCLIB"/>
+                    <TextBlock x:Name="LyricsDownloadStatusText" Style="{DynamicResource HubHintText}" Margin="0,0,0,16"
+                               TextWrapping="Wrap" Text=""/>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="AcoustID" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <TextBlock Text="API key" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="AcoustIdApiKeyBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,8"/>
+                    <TextBlock Text="fpcalc path (Chromaprint)" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="FpcalcPathBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,8"/>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,16" TextWrapping="Wrap"
+                               Text="Optional fingerprint lookup via AcoustID → MusicBrainz. Install Chromaprint fpcalc and register an API key at acoustid.org."/>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="Script hooks" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="ScriptHooksBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Run script hooks from the Scripts folder"/>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,6,0,8" TextWrapping="Wrap"
+                               Text="Optional .ps1 / .cmd scripts for on-track-started, on-track-changed, on-import, on-scan-complete."/>
+                    <Button Content="Open Scripts folder…" Style="{DynamicResource HubToolbarButton}" Margin="0,0,0,16"
+                            Click="OpenScriptsFolder_OnClick" HorizontalAlignment="Left"/>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="Organization" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <TextBlock Text="Organize template" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="OrganizeTemplateBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,8"/>
+                    <TextBlock Text="Organize root folder" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="OrganizeRootBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,16"/>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="Appearance" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="DarkThemeBox" Style="{DynamicResource HubSimpleCheckBox}" Content="Use dark theme"/>
+                    <TextBlock Text="Accent color" Style="{DynamicResource HubSettingLabel}" Margin="0,4,0,4"/>
+                    <ComboBox x:Name="AccentThemeBox" Width="220" HorizontalAlignment="Left" Margin="0,0,0,12">
+                        <ComboBoxItem Content="Purple (classic)" Tag="purple"/>
+                        <ComboBoxItem Content="Spotify green" Tag="spotify"/>
+                    </ComboBox>
+                    <CheckBox x:Name="MinimizeToTrayBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Minimize to system tray instead of closing"/>
+                    <CheckBox x:Name="StartWithWindowsBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Start with Windows (opens in system tray)"/>
+                    <CheckBox x:Name="NotifyOnTrackChangeBox" Style="{DynamicResource HubSimpleCheckBox}" Margin="0,0,0,16"
+                              Content="Show tray notification when the track changes"/>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="Backup" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <WrapPanel Margin="0,0,0,16">
+                        <Button Content="Export settings…" Style="{DynamicResource HubToolbarButton}" Click="ExportSettings_OnClick"/>
+                        <Button Content="Import settings…" Style="{DynamicResource HubToolbarButton}" Click="ImportSettings_OnClick"/>
+                    </WrapPanel>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="Updates (GitHub)" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="AutoCheckBox" Style="{DynamicResource HubSimpleCheckBox}"
+                              Content="Check for updates when the app starts"/>
+                    <TextBlock x:Name="UpdateStatusText" Style="{DynamicResource HubHintText}" Margin="0,0,0,10"/>
+                    <WrapPanel Margin="0,0,0,12">
+                        <Button Content="Check for updates…" Style="{DynamicResource HubToolbarButton}" Click="CheckUpdates_OnClick"/>
+                        <Button x:Name="DownloadInstallerButton" Content="Download and run installer…"
+                                Style="{DynamicResource HubToolbarButton}" Click="DownloadInstaller_OnClick" IsEnabled="False"/>
+                        <Button Content="Open releases page" Style="{DynamicResource HubToolbarButton}" Click="OpenReleases_OnClick"/>
+                    </WrapPanel>
+
+                    <Separator Margin="0,0,0,12"/>
+                    <TextBlock Text="About" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,8"/>
+                    <TextBlock x:Name="AboutText" Style="{DynamicResource HubBodyText}" TextWrapping="Wrap"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <Border Grid.Row="1" Style="{DynamicResource HubCardBorder}" Padding="12" Margin="0,12,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Save" MinWidth="88" Padding="14,7" Margin="0,0,8,0"
+                        Style="{DynamicResource HubPrimaryButton}" IsDefault="True" Click="Save_OnClick"/>
+                <Button Content="Cancel" MinWidth="88" Padding="14,7"
+                        Style="{DynamicResource HubToolbarButton}" IsCancel="True" Click="Cancel_OnClick"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

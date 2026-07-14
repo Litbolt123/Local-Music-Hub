@@ -1,0 +1,13 @@
+LOCAL MUSIC HUB — END USER TERMS (SUMMARY)
+
+By installing or using Local Music Hub you agree that:
+
+1. The software is provided "as is" without warranty of any kind.
+2. You are responsible for ensuring you have the rights to copy, store, and
+   play any media files you add to your library.
+3. The authors are not liable for data loss, playback issues, or any damages
+   arising from use of the software.
+4. Updates may change features; your settings and library database under
+   %LocalAppData%\LocalMusicHub are kept across updates when possible.
+
+If you do not agree, cancel the installer.

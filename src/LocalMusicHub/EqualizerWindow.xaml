@@ -1,0 +1,34 @@
+<Window x:Class="LocalMusicHub.EqualizerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Equalizer"
+        Height="420" Width="560"
+        MinHeight="360" MinWidth="480"
+        Background="{DynamicResource HubBgBrush}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,12">
+            <TextBlock Text="Custom equalizer" Style="{DynamicResource HubSectionTitle}" FontSize="18"/>
+            <TextBlock Style="{DynamicResource HubHintText}" Margin="0,4,0,0" TextWrapping="Wrap"
+                       Text="Drag bands (±12 dB). Apply stores a Custom preset — click Save in Settings to keep it and reload playback."/>
+        </StackPanel>
+        <UniformGrid x:Name="BandsHost" Grid.Row="1" Columns="10" Margin="0,0,0,12"/>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,14">
+            <Button Content="Reset flat" Style="{DynamicResource HubToolbarButton}" Click="Reset_OnClick" Margin="0,0,8,0"/>
+            <Button Content="Bass" Style="{DynamicResource HubToolbarButton}" Click="Bass_OnClick" Margin="0,0,8,0"/>
+            <Button Content="Vocal" Style="{DynamicResource HubToolbarButton}" Click="Vocal_OnClick" Margin="0,0,8,0"/>
+            <Button Content="Treble" Style="{DynamicResource HubToolbarButton}" Click="Treble_OnClick"/>
+        </StackPanel>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancel" Style="{DynamicResource HubToolbarButton}" Padding="14,8" IsCancel="True" Margin="0,0,8,0"/>
+            <Button Content="Apply" Style="{DynamicResource HubPrimaryButton}" Padding="16,8" IsDefault="True" Click="Apply_OnClick"/>
+        </StackPanel>
+    </Grid>
+</Window>

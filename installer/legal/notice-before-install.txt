@@ -1,0 +1,9 @@
+Local Music Hub — before you install
+
+This installer places Local Music Hub under your user profile
+(%LocalAppData%\Programs\LocalMusicHub). Admin rights are not required.
+
+The app indexes and plays music files on this PC. It can optionally watch
+folders written by YouTube Downloader so new downloads appear in your library.
+
+You can create a desktop shortcut on the next screens if you want one.

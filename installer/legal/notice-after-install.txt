@@ -1,0 +1,10 @@
+Local Music Hub is installed.
+
+Launch from the Start menu. Your library and settings live in:
+  %LocalAppData%\LocalMusicHub
+
+**Pair with YouTube Downloader** for downloading music:
+  Install YouTubeToMp3-Setup-*.exe from GitHub Releases, then enable integration in both apps' Settings.
+  See docs\music-stack-setup.md in the repo (or ask your friend who shared these installers).
+
+Updates: the app can notify you when a new LocalMusicHub-Setup-*.exe is on GitHub Releases.

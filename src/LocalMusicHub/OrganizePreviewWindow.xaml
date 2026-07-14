@@ -1,0 +1,46 @@
+<Window x:Class="LocalMusicHub.OrganizePreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Organize files"
+        Height="620" Width="820"
+        MinHeight="480" MinWidth="640"
+        Background="{DynamicResource HubBgBrush}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Text="Organize files" Style="{DynamicResource HubSectionTitle}" FontSize="18" Margin="0,0,0,12"/>
+        <StackPanel Grid.Row="1" Margin="0,0,0,10">
+            <TextBlock Text="Template" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+            <TextBox x:Name="TemplateBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,8"/>
+            <TextBlock Text="Root folder" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+            <TextBox x:Name="RootBox" Style="{DynamicResource HubTextBox}"/>
+            <TextBlock x:Name="SummaryText" Style="{DynamicResource HubHintText}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+        <ListView x:Name="PreviewList" Grid.Row="2" SelectionMode="Extended">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="Apply" Width="48">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding Apply}" HorizontalAlignment="Center"/>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="Current path" Width="300" DisplayMemberBinding="{Binding OldPath}"/>
+                    <GridViewColumn Header="New path" Width="360" DisplayMemberBinding="{Binding NewPath}"/>
+                </GridView>
+            </ListView.View>
+        </ListView>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Refresh preview" Style="{DynamicResource HubToolbarButton}" Padding="14,8" Click="Refresh_OnClick"/>
+            <Button Content="Apply selected" Style="{DynamicResource HubPrimaryButton}" Padding="16,8" Click="Apply_OnClick"/>
+            <Button Content="Cancel" Style="{DynamicResource HubToolbarButton}" Padding="14,8" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

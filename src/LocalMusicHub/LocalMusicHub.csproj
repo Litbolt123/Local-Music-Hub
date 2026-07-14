@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>LocalMusicHub</RootNamespace>
+    <AssemblyName>LocalMusicHub</AssemblyName>
+    <Product>Local Music Hub</Product>
+    <Company>Local Music Hub</Company>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DiscordRichPresence" Version="1.2.1.24" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="TagLibSharp" Version="2.3.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <UpdateWindowsShortcuts Condition="'$(UpdateWindowsShortcuts)' == ''">true</UpdateWindowsShortcuts>
+  </PropertyGroup>
+
+  <Target Name="UpdateWindowsShortcutsAfterBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' and '$(UpdateWindowsShortcuts)' == 'true'">
+    <PropertyGroup>
+      <_ShortcutSourceDir>$([System.String]::Copy('$(TargetDir)').TrimEnd('\'))</_ShortcutSourceDir>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\update-windows-shortcuts.ps1&quot; -SourceDir &quot;$(_ShortcutSourceDir)&quot; -SkipProcessStop" IgnoreExitCode="false" />
+  </Target>
+
+</Project>

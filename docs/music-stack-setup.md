@@ -62,11 +62,19 @@ You can paste URLs in Music Hub’s sidebar; downloads run in YouTube Downloader
 
 ### 5. Browser extension (optional)
 
-In YouTube Downloader → Settings, follow the link to load the unpacked extension from:
+Adds a **Download** button on YouTube watch pages in Chrome or Edge.
 
-`%LocalAppData%\Programs\YouTubeToMp3\browser-extension`
+**Friend guide (step-by-step with pictures described):**  
+https://github.com/Litbolt123/YouTube-to-MP3/blob/main/docs/browser-extension-friend-guide.md
 
-Use it to send videos from Chrome/Edge to the downloader.
+Short version:
+
+1. Open **YouTube Downloader → Settings → Local API**.
+2. Enable the API, **Copy** the connection token, click **Open extension folder**.
+3. In Chrome (`chrome://extensions`) or Edge (`edge://extensions`): **Developer mode** → **Load unpacked** → select that `browser-extension` folder.
+4. Click the extension icon → paste token → **Save** → **Test connection**.
+
+The extension is **bundled with the installer** — there is no Chrome Web Store listing.
 
 ## Updates
 

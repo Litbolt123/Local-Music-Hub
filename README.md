@@ -2,6 +2,8 @@
 
 A local-first music library and player for Windows — built to pair with **YouTube Downloader**, not replace streaming services.
 
+**License:** [Apache License 2.0](LICENSE)
+
 **Current version: 0.10.0**
 
 ## Install (friends)

@@ -52,6 +52,7 @@ public sealed class AppSettings
     public string? FpcalcPath { get; set; }
     public List<float> CustomEqBands { get; set; } = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     public bool AutoCheckUpdates { get; set; } = true;
+    public bool NotifyTrayOnUpdate { get; set; } = true;
     public string? DismissedUpdateVersion { get; set; }
     public string? LastUpdateCheckUtc { get; set; }
 }

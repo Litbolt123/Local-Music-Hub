@@ -151,6 +151,7 @@ public partial class SettingsWindow
         StartWithWindowsBox.IsChecked = AutoStartService.IsEnabled() || s.StartWithWindows;
         NotifyOnTrackChangeBox.IsChecked = s.NotifyOnTrackChange;
         AutoCheckBox.IsChecked = s.AutoCheckUpdates;
+        NotifyTrayOnUpdateBox.IsChecked = s.NotifyTrayOnUpdate;
         DefaultVolumeSlider.Value = Math.Clamp(s.DefaultVolume, 0, 1);
         PlaybackSpeedSlider.Value = Math.Clamp(s.PlaybackSpeed, 0.5, 2.0);
         UpdatePlaybackSpeedLabel();
@@ -422,6 +423,7 @@ public partial class SettingsWindow
             YouTubeDownloaderPort = App.Settings.YouTubeDownloaderPort,
             YouTubeDownloaderToken = App.Settings.YouTubeDownloaderToken,
             AutoCheckUpdates = AutoCheckBox.IsChecked == true,
+            NotifyTrayOnUpdate = NotifyTrayOnUpdateBox.IsChecked == true,
             DismissedUpdateVersion = App.Settings.DismissedUpdateVersion,
             LastUpdateCheckUtc = App.Settings.LastUpdateCheckUtc,
         };
@@ -449,10 +451,12 @@ public partial class SettingsWindow
         {
             UpdateStatusText.Text = $"Newer version available: {_lastCheck.LatestVersion} (you have {App.VersionDisplay}).";
             DownloadInstallerButton.IsEnabled = !string.IsNullOrWhiteSpace(_lastCheck.InstallerDownloadUrl);
+            UpdateAvailabilityCache.Set(_lastCheck.LatestVersion, _lastCheck.InstallerDownloadUrl);
         }
         else
         {
             UpdateStatusText.Text = $"You are up to date ({App.VersionDisplay}).";
+            UpdateAvailabilityCache.Clear();
         }
 
         App.Settings.LastUpdateCheckUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);

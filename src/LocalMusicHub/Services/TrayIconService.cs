@@ -98,6 +98,51 @@ public sealed class TrayIconService : IDisposable
         }
     }
 
+    public void ShowUpdateAvailableBalloon(string version, string downloadUrl)
+    {
+        if (!_icon.Visible)
+            return;
+
+        try
+        {
+            _pendingUpdateBalloonUrl = downloadUrl;
+            _icon.BalloonTipClicked -= UpdateBalloon_OnClicked;
+            _icon.BalloonTipClicked += UpdateBalloon_OnClicked;
+            _icon.ShowBalloonTip(
+                14000,
+                $"Local Music Hub {version} is available",
+                "Click here to open the download. Quit this app before running the installer.",
+                ToolTipIcon.Info);
+        }
+        catch
+        {
+            /* ignore */
+        }
+    }
+
+    private string? _pendingUpdateBalloonUrl;
+
+    private void UpdateBalloon_OnClicked(object? sender, EventArgs e)
+    {
+        var url = _pendingUpdateBalloonUrl;
+        _pendingUpdateBalloonUrl = null;
+        if (string.IsNullOrWhiteSpace(url))
+            url = UpdateCheckService.ReleasesPageUrl;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+        }
+        catch
+        {
+            /* ignore */
+        }
+    }
+
     private void ShowWindow() => ShowMainWindow();
 
     private static void OpenPrimaryLibraryFolder()

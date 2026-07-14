@@ -194,3 +194,31 @@ public static class UpdateCheckService
         }
     }
 }
+
+/// <summary>Latest GitHub update seen this session (startup card + tray).</summary>
+public static class UpdateAvailabilityCache
+{
+    public static string? PendingVersion { get; private set; }
+    public static string? InstallerDownloadUrl { get; private set; }
+
+    public static bool HasPending => !string.IsNullOrWhiteSpace(PendingVersion);
+
+    public static void Set(string? version, string? installerDownloadUrl)
+    {
+        PendingVersion = string.IsNullOrWhiteSpace(version) ? null : version.Trim();
+        InstallerDownloadUrl = installerDownloadUrl;
+    }
+
+    public static void Clear()
+    {
+        PendingVersion = null;
+        InstallerDownloadUrl = null;
+    }
+
+    public static UpdateCheckResult ToResult() =>
+        new(true, PendingVersion, UpdateCheckService.ReleasesPageUrl, null)
+        {
+            IsNewerThanCurrent = true,
+            InstallerDownloadUrl = InstallerDownloadUrl,
+        };
+}

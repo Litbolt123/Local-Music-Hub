@@ -1,10 +1,10 @@
-## Local Music Hub 0.10.0
+## Local Music Hub 0.10.1
 
-### Distribution
-- **GitHub Releases** workflow: push tag `v0.10.0` to build `LocalMusicHub-Setup-0.10.0.exe`.
-- **Auto-update check** on startup (Settings → Updates) against `Litbolt123/Local-Music-Hub`.
-- Friend-facing setup guide in `docs/music-stack-setup.md`.
+### Updates (test this release)
+- WAID-style update checks: startup check ~12s after launch, optional tray balloon, update banner on main window.
+- Settings → **Updates (GitHub)**: auto-check on start, manual check, **Download and run installer**.
 
-### For maintainers
-- Bump `Directory.Build.props`, edit this file, commit, then `git tag v0.10.0 && git push origin v0.10.0`.
-- Pair with YouTube Downloader 1.9.8+ for bundled download tools.
+### How to verify (if you are on 0.10.0)
+1. Open Local Music Hub 0.10.0 (do not reinstall yet).
+2. Settings → Updates → **Check for updates** — should offer **0.10.1**.
+3. **Download and run installer**, or use the main-window update banner after restart.

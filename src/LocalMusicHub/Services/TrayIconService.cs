@@ -8,6 +8,7 @@ namespace LocalMusicHub.Services;
 public sealed class TrayIconService : IDisposable
 {
     private readonly NotifyIcon _icon;
+    private readonly ContextMenuStrip _menu;
     private readonly Icon _ownedIcon;
     private MainWindow? _window;
     private bool _disposed;
@@ -26,21 +27,24 @@ public sealed class TrayIconService : IDisposable
             Visible = false,
         };
 
-        var menu = new ContextMenuStrip();
-        menu.Items.Add("Open Local Music Hub", null, (_, _) => ShowWindow());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Play / Pause", null, (_, _) => PlayPauseRequested?.Invoke());
-        menu.Items.Add("Next track", null, (_, _) => NextRequested?.Invoke());
-        menu.Items.Add("Previous track", null, (_, _) => PreviousRequested?.Invoke());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Open library folder", null, (_, _) => OpenPrimaryLibraryFolder());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Quit", null, (_, _) => ExitApp());
-        _icon.ContextMenuStrip = menu;
+        _menu = new ContextMenuStrip();
+        _menu.Items.Add("Open Local Music Hub", null, (_, _) => ShowWindow());
+        _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add("Play / Pause", null, (_, _) => PlayPauseRequested?.Invoke());
+        _menu.Items.Add("Next track", null, (_, _) => NextRequested?.Invoke());
+        _menu.Items.Add("Previous track", null, (_, _) => PreviousRequested?.Invoke());
+        _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add("Open library folder", null, (_, _) => OpenPrimaryLibraryFolder());
+        _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add("Quit", null, (_, _) => ExitApp());
+        ApplyTheme();
+        _icon.ContextMenuStrip = _menu;
         _icon.DoubleClick += (_, _) => ShowWindow();
     }
 
     public void Attach(MainWindow window) => _window = window;
+
+    public void ApplyTheme() => TrayMenuTheme.Apply(_menu);
 
     public void ShowTrayIcon() => _icon.Visible = true;
 

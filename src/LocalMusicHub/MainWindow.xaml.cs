@@ -3872,6 +3872,7 @@ public partial class MainWindow
         if (dlg.ShowDialog() == true)
         {
             HubTheme.ApplyFromSettings();
+            _tray.ApplyTheme();
             _playback.SetVolume(App.Settings.DefaultVolume);
             _playback.ReloadOutputSettings();
             SyncSpeedComboFromSettings();

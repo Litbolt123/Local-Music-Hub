@@ -5,6 +5,11 @@
 - **`move_agent_to_root` does not work** here — never call it. Stay on home workspace and use absolute paths under `GitHub projects\` for Local Music Hub / YouTube Downloader.
 - **Release builds** auto-sync to `%LocalAppData%\Programs\LocalMusicHub\` and refresh Start Menu / Desktop shortcuts (`scripts\update-windows-shortcuts.ps1`).
 
+## 2026-07-14 — Tray context menu theming
+
+- **Tray menu** (`TrayIconService` + `TrayMenuTheme`) now uses a custom WinForms `ProfessionalColorTable` aligned with `HubThemeDark` / `HubThemeLight` (`#181818` card bg, white text, `#2A2A2A` hover in dark mode).
+- Follows **Settings → Use dark theme**; refreshes when settings are saved (`_tray.ApplyTheme()` after `HubTheme.ApplyFromSettings()`).
+
 ## 2026-07-14 — Roadmap batch v0.8.12 → v0.9.4 (minus DLNA)
 
 Shipped full plan except DLNA/Cast:

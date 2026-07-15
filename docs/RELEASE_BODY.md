@@ -1,10 +1,8 @@
-## Local Music Hub 0.10.1
+## Local Music Hub 0.11.0
 
-### Updates (test this release)
-- WAID-style update checks: startup check ~12s after launch, optional tray balloon, update banner on main window.
-- Settings → **Updates (GitHub)**: auto-check on start, manual check, **Download and run installer**.
+### Tray menu theming
+- System tray context menu now follows the app dark/light theme (colors aligned with the main window).
+- Tray menu refreshes when you change theme in Settings without restarting the hub.
 
-### How to verify (if you are on 0.10.0)
-1. Open Local Music Hub 0.10.0 (do not reinstall yet).
-2. Settings → Updates → **Check for updates** — should offer **0.10.1**.
-3. **Download and run installer**, or use the main-window update banner after restart.
+### Updates
+- If you are on 0.10.1 or earlier, use Settings -> Updates (GitHub) -> Check for updates, or install LocalMusicHub-Setup-0.11.0.exe from this release.

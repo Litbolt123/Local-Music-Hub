@@ -49,10 +49,30 @@ $installDir = Join-Path $env:LOCALAPPDATA "Programs\$InstallFolderName"
 $installExe = Join-Path $installDir $ExeName
 $version = & (Join-Path $repoRoot 'scripts\get-version.ps1')
 
-if (-not $SkipProcessStop) {
+function Stop-LocalMusicHubGracefully {
+    if ($SkipProcessStop) { return }
+
+    $running = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
+    if (-not $running) { return }
+
+    $requestPath = Join-Path $env:LOCALAPPDATA "$InstallFolderName\shutdown.request"
+    $dataDir = Split-Path $requestPath -Parent
+    New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+    Set-Content -Path $requestPath -Value ((Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+
+    $deadline = (Get-Date).AddSeconds(6)
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    }
+
     Get-Process -Name $ProcessName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 400
 }
+
+Stop-LocalMusicHubGracefully
 
 Write-Host "Syncing $AppDisplayName $version"
 Write-Host "  From: $SourceDir"

@@ -1,0 +1,53 @@
+<Window x:Class="LocalMusicHub.ScanFoldersWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Scan folders"
+        Height="420" Width="560"
+        MinHeight="320" MinWidth="440"
+        Background="{DynamicResource HubBgBrush}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Margin="0,0,0,12">
+            <TextBlock Text="Scan folders" Style="{DynamicResource HubSectionTitle}" FontSize="18"/>
+            <TextBlock Style="{DynamicResource HubHintText}" Margin="0,6,0,0" TextWrapping="Wrap"
+                       Text="Pick one or more folders to rescan. Only tracks inside the selected folders are updated or removed — the rest of your library is left unchanged."/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Style="{DynamicResource HubCardBorder}" Padding="10">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="FoldersList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox Content="{Binding Path}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                      Margin="0,5" ToolTip="{Binding Path}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,14">
+            <Button Content="Add folder…" Style="{DynamicResource HubToolbarButton}" Padding="12,6"
+                    Click="AddFolder_OnClick"/>
+            <Button Content="Select all" Style="{DynamicResource HubToolbarButton}" Padding="12,6" Margin="8,0,0,0"
+                    Click="SelectAll_OnClick"/>
+            <Button Content="Select none" Style="{DynamicResource HubToolbarButton}" Padding="12,6" Margin="8,0,0,0"
+                    Click="SelectNone_OnClick"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancel" Style="{DynamicResource HubToolbarButton}" Padding="14,8" Margin="0,0,8,0"
+                    IsCancel="True"/>
+            <Button Content="Scan selected" Style="{DynamicResource HubPrimaryButton}" Padding="14,8"
+                    IsDefault="True" Click="Scan_OnClick"/>
+        </StackPanel>
+    </Grid>
+</Window>

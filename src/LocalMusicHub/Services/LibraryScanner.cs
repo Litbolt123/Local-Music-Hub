@@ -9,10 +9,17 @@ public sealed class LibraryScanner
 
     public LibraryScanner(LibraryRepository repository) => _repository = repository;
 
+    public async Task<ScanResult> ScanFoldersAsync(
+        IEnumerable<string> roots,
+        IProgress<ScanProgress>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        await ScanAsync(roots, progress, cancellationToken, limitMissingRemovalToRoots: true).ConfigureAwait(true);
+
     public async Task<ScanResult> ScanAsync(
         IEnumerable<string> roots,
         IProgress<ScanProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool limitMissingRemovalToRoots = false)
     {
         return await Task.Run(() =>
         {
@@ -46,7 +53,10 @@ public sealed class LibraryScanner
                 }
             }
 
-            _repository.RemoveMissingPaths(files);
+            if (limitMissingRemovalToRoots)
+                _repository.RemoveMissingPathsUnderRoots(roots, files);
+            else
+                _repository.RemoveMissingPaths(files);
             return new ScanResult(files.Count, indexed);
         }, cancellationToken).ConfigureAwait(true);
     }

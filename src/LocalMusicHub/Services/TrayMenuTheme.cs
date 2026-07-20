@@ -1,10 +1,11 @@
 using System.Drawing;
 using System.Windows.Forms;
+using MediaColor = System.Windows.Media.Color;
 
 namespace LocalMusicHub.Services;
 
 /// <summary>
-/// WinForms tray context menu colors aligned with HubThemeDark / HubThemeLight.
+/// WinForms tray context menu colors aligned with HubThemeDark / HubThemeLight and accent.
 /// </summary>
 internal static class TrayMenuTheme
 {
@@ -26,7 +27,7 @@ internal static class TrayMenuTheme
 
     public static void Apply(ContextMenuStrip menu)
     {
-        var palette = App.Settings.UseDarkTheme ? Dark : Light;
+        var palette = BuildPalette();
 
         menu.BackColor = palette.Background;
         menu.ForeColor = palette.Foreground;
@@ -36,6 +37,46 @@ internal static class TrayMenuTheme
         menu.Font = new Font("Segoe UI", 9f);
 
         ApplyToItems(menu.Items, palette);
+    }
+
+    private static TrayMenuPalette BuildPalette()
+    {
+        var basePalette = App.Settings.UseDarkTheme ? Dark : Light;
+        var accent = TryGetAccentColor();
+        if (accent is null)
+            return basePalette;
+
+        return basePalette with
+        {
+            Hover = Blend(accent.Value, basePalette.Background, 0.28),
+            Selected = Blend(accent.Value, basePalette.Background, 0.42),
+        };
+    }
+
+    private static MediaColor? TryGetAccentColor()
+    {
+        try
+        {
+            if (System.Windows.Application.Current?.TryFindResource("HubAccentColor") is MediaColor color)
+                return color;
+        }
+        catch
+        {
+            /* ignore */
+        }
+
+        return null;
+    }
+
+    private static Color Blend(MediaColor accent, Color background, double amount)
+    {
+        byte Mix(byte accentChannel, byte backgroundChannel) =>
+            (byte)Math.Clamp(backgroundChannel + (accentChannel - backgroundChannel) * amount, 0, 255);
+
+        return Color.FromArgb(
+            Mix(accent.R, background.R),
+            Mix(accent.G, background.G),
+            Mix(accent.B, background.B));
     }
 
     private static void ApplyToItems(ToolStripItemCollection items, TrayMenuPalette palette)

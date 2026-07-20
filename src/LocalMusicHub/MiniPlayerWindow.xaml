@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Mini player"
-        Height="168" Width="460"
-        MinHeight="140" MinWidth="360"
+        Height="228" Width="480"
+        MinHeight="200" MinWidth="380"
         Background="{DynamicResource HubBgBrush}"
         WindowStartupLocation="Manual"
         ResizeMode="CanResize"
@@ -20,51 +20,90 @@
         <Geometry x:Key="IconPauseGeo">M6,5 H10 V19 H6 Z M14,5 H18 V19 H14 Z</Geometry>
         <Geometry x:Key="IconPrevGeo">M5,5 V19 H7.2 V12.8 L17.8,19.5 V4.5 L7.2,11.2 V5 Z</Geometry>
         <Geometry x:Key="IconNextGeo">M6.2,4.5 L16.8,11.2 V5 H19 V19 H16.8 V12.8 L6.2,19.5 Z</Geometry>
+        <Geometry x:Key="IconCloseGeo">M6,6 L18,18 M18,6 L6,18</Geometry>
+        <Geometry x:Key="IconExpandGeo">M13,5 H19 V11 M19,5 L10,14</Geometry>
     </Window.Resources>
     <Border Style="{DynamicResource HubCardBorder}" Padding="12" Margin="6">
         <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="96"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <Border Width="88" Height="88" CornerRadius="8" Background="{DynamicResource HubMetricBgBrush}" ClipToBounds="True">
-                <Image x:Name="CoverImage" Stretch="Uniform"/>
-            </Border>
-            <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
-                <TextBlock x:Name="TitleText" Style="{DynamicResource HubSectionTitle}" FontSize="16"
-                           TextTrimming="CharacterEllipsis"/>
-                <TextBlock x:Name="ArtistText" Style="{DynamicResource HubHintText}" Margin="0,4,0,10" FontSize="13"
-                           TextTrimming="CharacterEllipsis"/>
-                <StackPanel Orientation="Horizontal">
-                    <Button Width="40" Height="36" Style="{DynamicResource HubToolbarButton}"
-                            Background="Transparent" Padding="0" Click="Previous_OnClick" ToolTip="Previous">
-                        <Path Style="{StaticResource HubTransportIcon}" Data="{StaticResource IconPrevGeo}"/>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="72"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Border Width="64" Height="64" CornerRadius="8" Background="{DynamicResource HubMetricBgBrush}" ClipToBounds="True">
+                    <Image x:Name="CoverImage" Stretch="Uniform"/>
+                </Border>
+                <StackPanel Grid.Column="1" Margin="10,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="TitleText" Style="{DynamicResource HubSectionTitle}" FontSize="15"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="ArtistText" Style="{DynamicResource HubHintText}" Margin="0,2,0,8" FontSize="12"
+                               TextTrimming="CharacterEllipsis"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Width="36" Height="32" Style="{DynamicResource HubToolbarButton}"
+                                Background="Transparent" Padding="0" Click="Previous_OnClick" ToolTip="Previous">
+                            <Path Style="{StaticResource HubTransportIcon}" Data="{StaticResource IconPrevGeo}"/>
+                        </Button>
+                        <Button x:Name="PlayPauseButton" Width="44" Height="32" Style="{DynamicResource HubPrimaryButton}"
+                                Click="PlayPause_OnClick" Margin="4,0" Padding="0" ToolTip="Play / Pause">
+                            <Grid Width="16" Height="16">
+                                <Path x:Name="PlayPausePlayIcon" Width="14" Height="14" Stretch="Uniform"
+                                      Data="{StaticResource IconPlayGeo}"
+                                      Fill="{DynamicResource HubPrimaryForegroundBrush}" Margin="1,0,0,0"/>
+                                <Path x:Name="PlayPausePauseIcon" Width="14" Height="14" Stretch="Uniform"
+                                      Data="{StaticResource IconPauseGeo}"
+                                      Fill="{DynamicResource HubPrimaryForegroundBrush}"
+                                      Visibility="Collapsed"/>
+                            </Grid>
+                        </Button>
+                        <Button Width="36" Height="32" Style="{DynamicResource HubToolbarButton}"
+                                Background="Transparent" Padding="0" Click="Next_OnClick" ToolTip="Next">
+                            <Path Style="{StaticResource HubTransportIcon}" Data="{StaticResource IconNextGeo}"/>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="2" VerticalAlignment="Top">
+                    <Button Width="32" Height="32"
+                            Style="{DynamicResource HubToolbarButton}" ToolTip="Close mini player" Click="Close_OnClick"
+                            Margin="0,0,0,6" Padding="0">
+                        <Path Data="{StaticResource IconCloseGeo}" Width="14" Height="14" Stretch="Uniform"
+                              Stroke="{DynamicResource HubTextPrimaryBrush}" StrokeThickness="2"/>
                     </Button>
-                    <Button x:Name="PlayPauseButton" Width="48" Height="36" Style="{DynamicResource HubPrimaryButton}"
-                            Click="PlayPause_OnClick" Margin="6,0" Padding="0" ToolTip="Play / Pause">
-                        <Grid Width="16" Height="16">
-                            <Path x:Name="PlayPausePlayIcon" Width="14" Height="14" Stretch="Uniform"
-                                  Data="{StaticResource IconPlayGeo}"
-                                  Fill="White" Margin="1,0,0,0"/>
-                            <Path x:Name="PlayPausePauseIcon" Width="14" Height="14" Stretch="Uniform"
-                                  Data="{StaticResource IconPauseGeo}"
-                                  Fill="White"
-                                  Visibility="Collapsed"/>
-                        </Grid>
-                    </Button>
-                    <Button Width="40" Height="36" Style="{DynamicResource HubToolbarButton}"
-                            Background="Transparent" Padding="0" Click="Next_OnClick" ToolTip="Next">
-                        <Path Style="{StaticResource HubTransportIcon}" Data="{StaticResource IconNextGeo}"/>
+                    <Button Width="32" Height="32"
+                            Style="{DynamicResource HubToolbarButton}" ToolTip="Expand main window" Click="Expand_OnClick"
+                            Padding="0">
+                        <Path Data="{StaticResource IconExpandGeo}" Width="14" Height="14" Stretch="Uniform"
+                              Stroke="{DynamicResource HubTextPrimaryBrush}" StrokeThickness="2"/>
                     </Button>
                 </StackPanel>
-            </StackPanel>
-            <StackPanel Grid.Column="2" VerticalAlignment="Top">
-                <Button Content="✕" Width="36" Height="36"
-                        Style="{DynamicResource HubToolbarButton}" ToolTip="Close mini player" Click="Close_OnClick"
-                        Margin="0,0,0,8"/>
-                <Button Content="↗" Width="36" Height="36"
-                        Style="{DynamicResource HubToolbarButton}" ToolTip="Expand main window" Click="Expand_OnClick"/>
+            </Grid>
+            <Grid Grid.Row="1" Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="36"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="36"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="ElapsedText" Text="0:00" Style="{DynamicResource HubHintText}" FontSize="11"
+                           VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0"/>
+                <Slider x:Name="PositionSlider" Grid.Column="1" Minimum="0" Maximum="1" Value="0"
+                        VerticalAlignment="Center" IsMoveToPointEnabled="True"
+                        PreviewMouseDown="PositionSlider_OnPreviewMouseDown"
+                        PreviewMouseUp="PositionSlider_OnPreviewMouseUp"
+                        LostMouseCapture="PositionSlider_OnLostMouseCapture"/>
+                <TextBlock x:Name="RemainingText" Grid.Column="2" Text="0:00" Style="{DynamicResource HubHintText}" FontSize="11"
+                           VerticalAlignment="Center" Margin="6,0,0,0"/>
+            </Grid>
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center">
+                <TextBlock Text="Vol" Style="{DynamicResource HubHintText}" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Slider x:Name="VolumeSlider" Width="120" Minimum="0" Maximum="1"
+                        Style="{DynamicResource HubVolumeSlider}"
+                        VerticalAlignment="Center"
+                        ValueChanged="VolumeSlider_OnValueChanged"/>
             </StackPanel>
         </Grid>
     </Border>

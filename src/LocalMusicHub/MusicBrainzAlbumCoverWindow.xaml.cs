@@ -102,7 +102,7 @@ public partial class MusicBrainzAlbumCoverWindow
         CoverProgress.IsIndeterminate = true;
         CoverStatusText.Text = "Looking up cover (Apple / Deezer)… Apply is OK.";
 
-        var progress = new Progress<CoverArtProgress>(p =>
+        var progress = new Progress<CoverArtProgress>(p => Dispatcher.Invoke(() =>
         {
             CoverProgress.Visibility = Visibility.Visible;
             CoverProgress.IsIndeterminate = p.Total <= 0;
@@ -110,7 +110,7 @@ public partial class MusicBrainzAlbumCoverWindow
                 CoverProgress.Value = p.Fraction;
             CoverStatusText.Text = p.Message + " — Apply is OK.";
             StatusText.Text = p.Message;
-        });
+        }));
 
         try
         {
@@ -128,7 +128,7 @@ public partial class MusicBrainzAlbumCoverWindow
                 return;
             }
 
-            _previewCoverBytes = result.Bytes;
+            _previewCoverBytes = CoverArtHelper.NormalizeDownloadedCover(result.Bytes) ?? result.Bytes;
             _previewCoverKey = key;
             CoverProgress.Value = 1;
             CoverPreview.Source = CoverArtHelper.ToBitmap(result.Bytes, 150, centerCropSquare: true);
@@ -155,44 +155,45 @@ public partial class MusicBrainzAlbumCoverWindow
 
     private async void Apply_OnClick(object sender, RoutedEventArgs e)
     {
-        string artist;
-        string album;
-        if (ResultsList.SelectedItem is MusicBrainzReleaseHit hit)
-        {
-            artist = string.IsNullOrWhiteSpace(hit.Artist) ? ArtistBox.Text.Trim() : hit.Artist;
-            album = string.IsNullOrWhiteSpace(hit.Title) ? AlbumBox.Text.Trim() : hit.Title;
-        }
-        else
-        {
-            artist = ArtistBox.Text.Trim();
-            album = AlbumBox.Text.Trim();
-        }
-
-        var key = $"{artist}\n{album}".ToLowerInvariant();
-        if (_previewCoverBytes is { Length: > 0 } &&
-            string.Equals(_previewCoverKey, key, StringComparison.Ordinal))
-        {
-            ResultCover = _previewCoverBytes;
-            DialogResult = true;
-            Close();
-            return;
-        }
-
-        StatusText.Text = _coverDownloadInFlight
-            ? "Waiting for cover download…"
-            : "Downloading cover (Apple / Deezer)…";
-        CoverProgress.Visibility = Visibility.Visible;
-        CoverProgress.IsIndeterminate = true;
+        ApplyButton.IsEnabled = false;
         try
         {
-            var progress = new Progress<CoverArtProgress>(p =>
+            string artist;
+            string album;
+            if (ResultsList.SelectedItem is MusicBrainzReleaseHit hit)
+            {
+                artist = string.IsNullOrWhiteSpace(hit.Artist) ? ArtistBox.Text.Trim() : hit.Artist;
+                album = string.IsNullOrWhiteSpace(hit.Title) ? AlbumBox.Text.Trim() : hit.Title;
+            }
+            else
+            {
+                artist = ArtistBox.Text.Trim();
+                album = AlbumBox.Text.Trim();
+            }
+
+            var key = $"{artist}\n{album}".ToLowerInvariant();
+            if (_previewCoverBytes is { Length: > 0 } &&
+                string.Equals(_previewCoverKey, key, StringComparison.Ordinal))
+            {
+                ResultCover = _previewCoverBytes;
+                DialogResult = true;
+                Close();
+                return;
+            }
+
+            StatusText.Text = _coverDownloadInFlight
+                ? "Waiting for cover download…"
+                : "Downloading cover (Apple / Deezer)…";
+            CoverProgress.Visibility = Visibility.Visible;
+            CoverProgress.IsIndeterminate = true;
+            var progress = new Progress<CoverArtProgress>(p => Dispatcher.Invoke(() =>
             {
                 CoverProgress.IsIndeterminate = p.Total <= 0;
                 if (p.Total > 0)
                     CoverProgress.Value = p.Fraction;
                 CoverStatusText.Text = p.Message;
                 StatusText.Text = p.Message;
-            });
+            }));
             var result = await MusicBrainzService.FetchAlbumCoverAsync(artist, album, progress)
                 .ConfigureAwait(true);
             if (!result.Succeeded || result.Bytes is not { Length: > 0 })
@@ -202,7 +203,7 @@ public partial class MusicBrainzAlbumCoverWindow
                 return;
             }
 
-            ResultCover = result.Bytes;
+            ResultCover = CoverArtHelper.NormalizeDownloadedCover(result.Bytes) ?? result.Bytes;
             DialogResult = true;
             Close();
         }
@@ -210,6 +211,11 @@ public partial class MusicBrainzAlbumCoverWindow
         {
             MessageBox.Show(this, $"Could not download cover:\n{ex.Message}", "MusicBrainz",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            ApplyButton.IsEnabled = true;
+            CoverProgress.Visibility = Visibility.Collapsed;
         }
     }
 }

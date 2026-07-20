@@ -96,6 +96,8 @@
                             ToolTip="Open the 10-band equalizer editor"/>
                     <CheckBox x:Name="GaplessBox" Style="{DynamicResource HubSimpleCheckBox}" Content="Gapless playback"/>
                     <CheckBox x:Name="CrossfadeBox" Style="{DynamicResource HubSimpleCheckBox}" Content="Crossfade between tracks"/>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,8" TextWrapping="Wrap"
+                               Text="With crossfade on, tracks overlap smoothly instead of gapless switching at the exact boundary. Both can stay enabled."/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Crossfade (sec)" Width="120" Style="{DynamicResource HubSettingLabel}" VerticalAlignment="Center"/>
                         <TextBox x:Name="CrossfadeSecondsBox" Width="60" Style="{DynamicResource HubTextBox}" VerticalAlignment="Center"/>
@@ -183,14 +185,22 @@
 
                     <Separator Margin="0,0,0,12"/>
                     <TextBlock Text="Appearance" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
-                    <CheckBox x:Name="DarkThemeBox" Style="{DynamicResource HubSimpleCheckBox}" Content="Use dark theme"/>
+                    <CheckBox x:Name="DarkThemeBox" Style="{DynamicResource HubSimpleCheckBox}" Content="Use dark theme"
+                              Checked="Appearance_OnChanged" Unchecked="Appearance_OnChanged"/>
                     <TextBlock Text="Accent color" Style="{DynamicResource HubSettingLabel}" Margin="0,4,0,4"/>
-                    <ComboBox x:Name="AccentThemeBox" Width="220" HorizontalAlignment="Left" Margin="0,0,0,12">
-                        <ComboBoxItem Content="Purple (classic)" Tag="purple"/>
-                        <ComboBoxItem Content="Spotify green" Tag="spotify"/>
-                    </ComboBox>
+                    <ComboBox x:Name="AccentThemeBox" Width="260" HorizontalAlignment="Left" Margin="0,0,0,8"
+                              SelectionChanged="Appearance_OnChanged"/>
+                    <StackPanel x:Name="CustomAccentPanel" Orientation="Horizontal" Margin="0,0,0,12" Visibility="Collapsed">
+                        <Border x:Name="CustomAccentSwatch" Width="28" Height="28" CornerRadius="6"
+                                BorderBrush="{DynamicResource HubBorderBrush}" BorderThickness="1" Margin="0,0,8,0"/>
+                        <TextBox x:Name="CustomAccentHexBox" Width="96" Style="{DynamicResource HubTextBox}"
+                                 Margin="0,0,8,0" LostFocus="CustomAccentHexBox_OnLostFocus"/>
+                        <Button Content="Pick color…" Style="{DynamicResource HubToolbarButton}" Click="PickCustomAccent_OnClick"/>
+                    </StackPanel>
                     <CheckBox x:Name="MinimizeToTrayBox" Style="{DynamicResource HubSimpleCheckBox}"
-                              Content="Minimize to system tray instead of closing"/>
+                              Content="Close to system tray (keep playing in background)"/>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,8" TextWrapping="Wrap"
+                               Text="The tray icon stays visible while the app is running. This option only changes what happens when you close the main window."/>
                     <CheckBox x:Name="StartWithWindowsBox" Style="{DynamicResource HubSimpleCheckBox}"
                               Content="Start with Windows (opens in system tray)"/>
                     <CheckBox x:Name="NotifyOnTrackChangeBox" Style="{DynamicResource HubSimpleCheckBox}" Margin="0,0,0,16"

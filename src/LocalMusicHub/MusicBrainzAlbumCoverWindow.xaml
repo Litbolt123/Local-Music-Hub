@@ -65,7 +65,7 @@
         </Grid>
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
             <Button Content="Cancel" Style="{DynamicResource HubToolbarButton}" IsCancel="True" Padding="14,8"/>
-            <Button Content="Apply cover to album" Style="{DynamicResource HubPrimaryButton}" Padding="16,8"
+            <Button x:Name="ApplyButton" Content="Apply cover to album" Style="{DynamicResource HubPrimaryButton}" Padding="16,8"
                     Click="Apply_OnClick"/>
         </StackPanel>
     </Grid>

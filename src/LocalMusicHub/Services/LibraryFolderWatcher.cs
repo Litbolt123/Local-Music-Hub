@@ -63,6 +63,17 @@ public sealed class LibraryFolderWatcher : IDisposable
         if (!_enabled || SuppressEvents || string.IsNullOrWhiteSpace(path))
             return;
 
+        if (!deleted)
+        {
+            var name = Path.GetFileName(path);
+            if (name.Contains(".temp.", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith(".part", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith(".ytdl", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
         if (!deleted && !AudioTagReader.IsSupported(path))
             return;
 

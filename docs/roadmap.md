@@ -183,6 +183,12 @@ Based on `advanced-music-player-features.md` (feature catalogue). Phases are ord
 **v0.9.8 shipped:**
 - Play button white icon on accent; smoother star hover; volume no longer restarts track
 
+**v0.13.0 shipped:**
+- Crossfade stability + seek bar polish (0.12.x)
+- Accent themes + custom color picker
+- Push ingest API for YouTube Downloader (`/library/ingest`)
+- Mini player seek + volume; tray menu accent tint
+
 **Still open:**
 - DLNA / Cast (optional)
 

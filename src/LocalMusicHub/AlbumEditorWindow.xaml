@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Edit album"
-        Height="720" Width="780"
-        MinHeight="600" MinWidth="680"
+        Height="820" Width="880"
+        MinHeight="680" MinWidth="760"
         Background="{DynamicResource HubBgBrush}"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
@@ -13,7 +13,8 @@
     <Grid Margin="18">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*" MinHeight="140"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
@@ -23,7 +24,7 @@
             <TextBlock x:Name="SubtitleText" Style="{DynamicResource HubHintText}" Margin="0,4,0,0" TextWrapping="Wrap"/>
         </StackPanel>
 
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="1.1*"/>
                 <ColumnDefinition Width="16"/>
@@ -35,16 +36,28 @@
                 <StackPanel>
                     <TextBlock Text="Album details" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,10"/>
                     <TextBlock Text="Album artist" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
-                    <TextBox x:Name="AlbumArtistBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,12"/>
+                    <TextBox x:Name="AlbumArtistBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,10"/>
                     <TextBlock Text="Album" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
-                    <TextBox x:Name="AlbumBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,12"/>
+                    <TextBox x:Name="AlbumBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,10"/>
+                    <TextBlock Text="Year" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="YearBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,10"/>
+                    <TextBlock Text="Genre" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="GenreBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,10"/>
+                    <TextBlock Text="Date released" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="DateReleasedBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,10"
+                             ToolTip="Year or full date (e.g. 2016 or 2016-02-26). Applied to all tracks."/>
+                    <TextBlock Text="Comments" Style="{DynamicResource HubHintText}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="CommentsBox" Style="{DynamicResource HubTextBox}" Margin="0,0,0,10"
+                             MinHeight="52" MaxHeight="88" TextWrapping="Wrap" AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto"
+                             ToolTip="Applied to all tracks on this album."/>
                     <TextBlock x:Name="TrackCountText" Style="{DynamicResource HubHintText}" TextWrapping="Wrap"
-                               Text="Changes apply to all tracks on this album."/>
+                               Text="Album fields apply to all tracks. Edit individual songs below."/>
                 </StackPanel>
             </Border>
 
             <!-- Cover -->
-            <Border Grid.Column="2" Style="{DynamicResource HubCardBorder}" Padding="14">
+            <Border Grid.Column="2" Style="{DynamicResource HubCardBorder}" Padding="14" MaxHeight="360">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="Cover art" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,10"/>
                     <TextBlock x:Name="CoverStatusText" DockPanel.Dock="Bottom" Style="{DynamicResource HubHintText}"
@@ -52,7 +65,7 @@
                                Text="Drop an image here, or use the buttons below."/>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
-                            <Border Width="220" Height="220" HorizontalAlignment="Center"
+                            <Border Width="180" Height="180" HorizontalAlignment="Center"
                                     CornerRadius="8" Background="{DynamicResource HubMetricBgBrush}"
                                     ClipToBounds="True" Margin="0,0,0,12"
                                     AllowDrop="True" Drop="Window_OnDrop" DragOver="Window_OnDragOver"
@@ -121,9 +134,65 @@
             </Border>
         </Grid>
 
-        <TextBlock x:Name="StatusText" Grid.Row="2" Style="{DynamicResource HubHintText}" Margin="0,10,0,0"/>
+        <Border Grid.Row="2" Style="{DynamicResource HubCardBorder}" Padding="14">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Tracks" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,8"/>
+                <ListView x:Name="TrackList" ItemsSource="{Binding TrackRows}" BorderThickness="0"
+                          Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="#" Width="44">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding TrackNumberText, UpdateSourceTrigger=PropertyChanged}"
+                                                 Style="{DynamicResource HubTextBox}" Padding="4,2"
+                                                 IsEnabled="{Binding IsEditable}" ToolTip="Track number"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="Title" Width="220">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"
+                                                 Style="{DynamicResource HubTextBox}" Padding="4,2"
+                                                 IsEnabled="{Binding IsEditable}"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="Artist" Width="160">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding Artist, UpdateSourceTrigger=PropertyChanged}"
+                                                 Style="{DynamicResource HubTextBox}" Padding="4,2"
+                                                 IsEnabled="{Binding IsEditable}"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="Rating" Width="72">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <ComboBox SelectedIndex="{Binding Rating, UpdateSourceTrigger=PropertyChanged}"
+                                                  IsEnabled="{Binding IsEditable}" MinWidth="64" Padding="2,0">
+                                            <ComboBoxItem Content="—"/>
+                                            <ComboBoxItem Content="★"/>
+                                            <ComboBoxItem Content="★★"/>
+                                            <ComboBoxItem Content="★★★"/>
+                                            <ComboBoxItem Content="★★★★"/>
+                                            <ComboBoxItem Content="★★★★★"/>
+                                        </ComboBox>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="Duration" Width="56" DisplayMemberBinding="{Binding DurationLabel}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </DockPanel>
+        </Border>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+        <TextBlock x:Name="StatusText" Grid.Row="3" Style="{DynamicResource HubHintText}" Margin="0,10,0,0"/>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
             <Button Content="Cancel" Style="{DynamicResource HubToolbarButton}" IsCancel="True" Padding="14,8"/>
             <Button Content="Save album" Style="{DynamicResource HubPrimaryButton}" IsDefault="True" Padding="16,8"
                     Click="Save_OnClick"/>

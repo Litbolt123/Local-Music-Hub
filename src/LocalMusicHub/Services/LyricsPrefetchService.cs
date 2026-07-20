@@ -32,6 +32,7 @@ public sealed class LyricsPrefetchService : IDisposable
     private int _jobNotFound;
     private int _jobSkippedNotFound;
     private bool _jobActive;
+    private bool _resumingJob;
 
     public bool Enabled { get; set; } = true;
 
@@ -40,7 +41,6 @@ public sealed class LyricsPrefetchService : IDisposable
     public LyricsPrefetchService()
     {
         _worker = Task.Run(WorkerLoopAsync);
-        TryResumeSavedJob();
     }
 
     public void Enqueue(LibraryTrack track)
@@ -151,6 +151,7 @@ public sealed class LyricsPrefetchService : IDisposable
     {
         try
         {
+            TryResumeSavedJob();
             await foreach (var item in _channel.Reader.ReadAllAsync(_cts.Token))
             {
                 var track = item.Track;
@@ -236,7 +237,7 @@ public sealed class LyricsPrefetchService : IDisposable
 
     private void FlushJobSnapshotLocked()
     {
-        if (!_jobActive || _pendingJobPaths.Count == 0)
+        if (_resumingJob || !_jobActive || _pendingJobPaths.Count == 0)
             return;
 
         LyricsJobStore.Save(new LyricsJobSnapshot
@@ -270,16 +271,26 @@ public sealed class LyricsPrefetchService : IDisposable
             _jobActive = true;
         }
 
-        foreach (var path in snapshot.PendingPaths)
+        _resumingJob = true;
+        try
         {
-            if (!File.Exists(CuePathHelper.ResolveAudioPath(path)))
+            foreach (var path in snapshot.PendingPaths)
             {
-                CompleteJobTrack(path);
-                continue;
-            }
+                if (!File.Exists(CuePathHelper.ResolveAudioPath(path)))
+                {
+                    CompleteJobTrack(path);
+                    continue;
+                }
 
-            var track = new LibraryTrack { FilePath = path, Title = Path.GetFileNameWithoutExtension(path) };
-            EnqueueInternal(track, isJobTrack: true);
+                var track = new LibraryTrack { FilePath = path, Title = Path.GetFileNameWithoutExtension(path) };
+                EnqueueInternal(track, isJobTrack: true);
+            }
+        }
+        finally
+        {
+            _resumingJob = false;
+            lock (_jobGate)
+                FlushJobSnapshotLocked();
         }
 
         RaiseProgress();

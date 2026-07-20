@@ -9,14 +9,25 @@ public static class PlaybackPipeline
     public static PlaybackPipelineResult Build(LibraryTrack track, AppSettings settings)
     {
         var reader = new AudioFileReader(track.AudioFilePath);
-        ISampleProvider chain = reader.ToSampleProvider();
+        ISampleProvider chain = AudioFileReaders.AsSamples(reader);
 
         GaplessSampleProvider? gapless = null;
-        if (settings.GaplessEnabled)
+        var useTrackContainer = settings.GaplessEnabled || settings.CrossfadeEnabled;
+        if (useTrackContainer)
         {
-            gapless = new GaplessSampleProvider();
+            gapless = new GaplessSampleProvider
+            {
+                AutoAdvance = settings.GaplessEnabled && !settings.CrossfadeEnabled,
+            };
             gapless.SetCurrent(reader);
             chain = gapless;
+        }
+
+        CrossfadeSampleProvider? crossfade = null;
+        if (settings.CrossfadeEnabled)
+        {
+            crossfade = new CrossfadeSampleProvider(chain, settings.CrossfadeSeconds, reader.WaveFormat.SampleRate);
+            chain = crossfade;
         }
 
         var eq = new EqualizerSampleProvider(chain);
@@ -24,21 +35,13 @@ public static class PlaybackPipeline
 
         var gainDb = ResolveReplayGainDb(track, settings.ReplayGainMode);
         var linearGain = (float)Math.Pow(10, gainDb / 20.0);
-        var volume = new VolumeSampleProvider(eq) { Volume = linearGain * (float)settings.DefaultVolume };
+        var volume = new SmoothVolumeSampleProvider(eq) { Volume = linearGain * (float)settings.DefaultVolume };
         var speed = new SpeedSampleProvider(volume)
         {
             Speed = (float)Math.Clamp(settings.PlaybackSpeed, 0.5, 2.0),
         };
 
-        CrossfadeSampleProvider? crossfade = null;
-        ISampleProvider provider = speed;
-        if (settings.CrossfadeEnabled)
-        {
-            crossfade = new CrossfadeSampleProvider(speed, settings.CrossfadeSeconds, reader.WaveFormat.SampleRate);
-            provider = crossfade;
-        }
-
-        return new PlaybackPipelineResult(provider, reader, gapless, crossfade, volume, linearGain);
+        return new PlaybackPipelineResult(speed, reader, gapless, crossfade, volume, speed, linearGain);
     }
 
     public static double ResolveReplayGainDb(LibraryTrack track, string mode)
@@ -58,5 +61,6 @@ public readonly record struct PlaybackPipelineResult(
     AudioFileReader Reader,
     GaplessSampleProvider? Gapless,
     CrossfadeSampleProvider? Crossfade,
-    VolumeSampleProvider Volume,
+    SmoothVolumeSampleProvider Volume,
+    SpeedSampleProvider? Speed,
     float ReplayGainLinear);

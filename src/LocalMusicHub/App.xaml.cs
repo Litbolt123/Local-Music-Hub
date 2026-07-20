@@ -23,6 +23,8 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        StartupProfiler.Mark("app.on_startup");
+
         if (!SingleInstanceService.TryBecomePrimaryInstance(out _singleInstanceMutex))
         {
             SingleInstanceService.NotifyPrimaryInstance(e.Args);
@@ -30,7 +32,13 @@ public partial class App : Application
             return;
         }
 
+        StartupProfiler.Mark("app.single_instance_ok");
+
         Settings = AppSettingsService.Load();
+        AppSettingsService.EnsureLibraryIngestToken(Settings);
+        StartupProfiler.Configure(Settings.LogStartupTiming);
+        StartupProfiler.Mark("app.settings_loaded");
+
         Settings.StartWithWindows = AutoStartService.IsEnabled();
         if (Settings.StartWithWindows)
             Settings.MinimizeToTray = true;
@@ -38,7 +46,7 @@ public partial class App : Application
         {
             try
             {
-                var logPath = Path.Combine(AppPaths.DataDirectory, "startup-crash.log");
+                var logPath = Path.Combine(AppPaths.DataDirectory, "crash.log");
                 Directory.CreateDirectory(AppPaths.DataDirectory);
                 File.AppendAllText(logPath,
                     $"[{DateTime.UtcNow:O}] {args.Exception}\r\n");
@@ -49,18 +57,19 @@ public partial class App : Application
             }
 
             System.Windows.MessageBox.Show(
-                $"Local Music Hub failed to start:\n\n{args.Exception.Message}",
+                $"Local Music Hub encountered an error:\n\n{args.Exception.Message}",
                 "Local Music Hub",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             args.Handled = true;
-            Shutdown(-1);
         };
         PendingImportPath = ParseImportPath(e.Args);
         PendingImportFolder = e.Args.Any(a =>
             string.Equals(a, "--import-folder", StringComparison.OrdinalIgnoreCase));
         HubTheme.ApplyFromSettings();
+        StartupProfiler.Mark("app.theme_applied");
         base.OnStartup(e);
+        StartupProfiler.Mark("app.mainwindow_created");
 
         if (Settings.AutoCheckUpdates)
             SchedulePostStartupUpdateCheck();
@@ -119,6 +128,9 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        try { SaveSettings(); }
+        catch { /* ignore */ }
+
         if (_singleInstanceMutex is not null)
         {
             _singleInstanceMutex.ReleaseMutex();

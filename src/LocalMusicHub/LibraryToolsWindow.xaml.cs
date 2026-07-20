@@ -1,4 +1,5 @@
 using System.Windows;
+using LocalMusicHub.Services;
 
 namespace LocalMusicHub;
 
@@ -10,6 +11,7 @@ public partial class LibraryToolsWindow
     private readonly Action _onReplayGain;
     private readonly Action _onCleanDead;
     private readonly Action _onScanLibrary;
+    private readonly Action _onScanFolders;
 
     public LibraryToolsWindow(
         int trackCount,
@@ -18,8 +20,10 @@ public partial class LibraryToolsWindow
         Action onOrganize,
         Action onReplayGain,
         Action onCleanDead,
-        Action onScanLibrary)
+        Action onScanLibrary,
+        Action onScanFolders)
     {
+        HubTheme.Ensure(this);
         InitializeComponent();
         _onStats = onStats;
         _onDuplicates = onDuplicates;
@@ -27,6 +31,7 @@ public partial class LibraryToolsWindow
         _onReplayGain = onReplayGain;
         _onCleanDead = onCleanDead;
         _onScanLibrary = onScanLibrary;
+        _onScanFolders = onScanFolders;
         SummaryText.Text = $"{trackCount:N0} tracks indexed · pick a tool below";
     }
 
@@ -63,5 +68,11 @@ public partial class LibraryToolsWindow
     {
         Close();
         _onScanLibrary();
+    }
+
+    private void ScanFolders_OnClick(object sender, RoutedEventArgs e)
+    {
+        Close();
+        _onScanFolders();
     }
 }

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Windows.Media;
 using LocalMusicHub.Services;
 
 namespace LocalMusicHub.Models;
@@ -14,7 +15,9 @@ public sealed class LibraryTrack
     public string AlbumArtist { get; init; } = "";
     public int? TrackNumber { get; init; }
     public int? Year { get; init; }
+    public string DateReleased { get; init; } = "";
     public string Genre { get; init; } = "";
+    public string Comment { get; init; } = "";
     public TimeSpan Duration { get; init; }
     public int Bitrate { get; init; }
     public string Format { get; init; } = "";
@@ -65,6 +68,20 @@ public sealed class LibraryAlbum : INotifyPropertyChanged
     public int TrackCount { get; init; }
     public int? Year { get; init; }
     public byte[]? CoverArt { get; init; }
+
+    private ImageSource? _coverThumbnail;
+    /// <summary>Pre-decoded grid thumbnail — set off the UI thread before binding.</summary>
+    public ImageSource? CoverThumbnail
+    {
+        get => _coverThumbnail;
+        set
+        {
+            if (ReferenceEquals(_coverThumbnail, value))
+                return;
+            _coverThumbnail = value;
+            OnPropertyChanged();
+        }
+    }
 
     private bool _isSelected;
     public bool IsSelected

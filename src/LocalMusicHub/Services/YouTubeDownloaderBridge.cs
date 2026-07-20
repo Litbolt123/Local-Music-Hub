@@ -76,6 +76,9 @@ public sealed class YouTubeDownloaderBridge : IDisposable
 
     private void OnMaybeNewAudio(string path)
     {
+        if (IsIncompleteDownloadArtifact(path))
+            return;
+
         if (!AudioTagReader.IsSupported(path))
             return;
 
@@ -110,6 +113,18 @@ public sealed class YouTubeDownloaderBridge : IDisposable
                 cts.Dispose();
             }
         });
+    }
+
+    private static bool IsIncompleteDownloadArtifact(string path)
+    {
+        var name = Path.GetFileName(path);
+        if (name.Contains(".temp.", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (name.EndsWith(".part", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (name.EndsWith(".ytdl", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
     }
 
     private void StopWatchers()

@@ -327,6 +327,7 @@ public static class MusicBrainzService
                 var bytes = await DownloadImageAsync(url, timeoutCts.Token).ConfigureAwait(false);
                 if (bytes is { Length: > 0 })
                 {
+                    bytes = CoverArtHelper.NormalizeDownloadedCover(bytes) ?? bytes;
                     report(new CoverArtProgress(
                         $"Downloaded from {source} ({bytes.Length / 1024} KB)",
                         urls.Count,

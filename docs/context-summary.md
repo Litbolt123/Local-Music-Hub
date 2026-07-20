@@ -5,10 +5,45 @@
 - **`move_agent_to_root` does not work** here — never call it. Stay on home workspace and use absolute paths under `GitHub projects\` for Local Music Hub / YouTube Downloader.
 - **Release builds** auto-sync to `%LocalAppData%\Programs\LocalMusicHub\` and refresh Start Menu / Desktop shortcuts (`scripts\update-windows-shortcuts.ps1`).
 
-## 2026-07-14 — Tray context menu theming
+## 2026-07-19 — v0.13.0 release + push ingest + player polish
+
+- **Release:** `v0.13.0` — folds 0.11.x–0.12.x playback/theme fixes plus new features below. `RELEASE_BODY.md`, README, roadmap updated.
+- **Push ingest:** Hub `LibraryIngestHost` on `http://127.0.0.1:47385/library/ingest` (token in `settings.json`). YouTube Downloader **2.1.1** calls push on music download complete (`LocalMusicHubPushIngest.cs`). Folder watch remains fallback.
+- **Player polish:** Mini player seek + volume; tray menu accent tint; removed orphan `CoverAdjustWindow` / `AlbumEditWindow`.
+- **Build:** Hub 0.13.0 synced locally. YT 2.1.1 compiled (user may need to close YT app to sync install).
+
+## 2026-07-19 — Seek bar hop at track end (v0.12.2)
+
+- **Symptom:** Near end of a song, seek bar hops back ~1–2 s (crossfade overlap).
+- **Cause:** `PositionReader` reported incoming decode position while UI still showed outgoing track; timer path allowed backward slider smoothing.
+- **Fix:** `ActiveReader` stays on outgoing stream until crossfade handoff; UI skips drift reconcile and keeps rendering during crossfade.
+
+## 2026-07-19 — Crossfade garbled audio (v0.12.1)
+
+- **Symptom:** After several songs, audio garbled, popped, then stopped.
+- **Cause:** Outgoing EOF fired `PlaybackStopped` during/after crossfade while incoming track still playing; handler advanced queue and called `LoadCurrent` on top of live playback. Also stale buffer samples when outgoing read returned 0 mid-fade.
+- **Fix:** `ShouldResumeAfterSpuriousStop()` guard; clear `_crossfadeTransitionActive` synchronously on handoff; reset `SpeedSampleProvider` on track change; safer gapless/crossfade cleanup.
+
+## 2026-07-19 — Accent themes + custom color (v0.12.0)
+
+- **User ask:** Polish pass + more themes + color-picker theme after seek-bar/crossfade fixes confirmed working (0.11.6).
+- **Shipped:** Eight accent presets (purple, Spotify, ocean, teal, rose, crimson, amber, sunset) plus **Custom color…** with hex field and WinForms color picker in Settings → Appearance.
+- **Live preview** while Settings is open; **Cancel** or close without save reverts via `HubTheme.ApplyFromSettings()`.
+- **Contrast:** `HubPrimaryForegroundBrush` on primary buttons and checked toolbar toggles (amber/sunset use dark text).
+- **Refresh:** `StarRatingControl` listens to `HubTheme.ThemeChanged`; shuffle/repeat chrome updates after Settings closes; `LibraryToolsWindow` calls `HubTheme.Ensure`.
+- **Build:** 0.12.0 synced to `%LocalAppData%\Programs\LocalMusicHub\`.
+
+## 2026-07-19 — Maple Bear platform checklist + master prompt
+
+- Cross-app platform docs created from Hub + YouTube Downloader + What Am I Doing patterns.
+- Shared files: `GitHub projects/docs/maple-bear-app-platform-checklist.md`, `GitHub projects/docs/maple-bear-app-platform-master-prompt.md`.
+- Hub contributed: single-instance + `activate.signal`, HubTheme light/dark, tray/autostart, JSON settings, GitHub updater, Inno + release workflow.
+
+## 2026-07-14 — Tray context menu theming (v0.11.0)
 
 - **Tray menu** (`TrayIconService` + `TrayMenuTheme`) now uses a custom WinForms `ProfessionalColorTable` aligned with `HubThemeDark` / `HubThemeLight` (`#181818` card bg, white text, `#2A2A2A` hover in dark mode).
 - Follows **Settings → Use dark theme**; refreshes when settings are saved (`_tray.ApplyTheme()` after `HubTheme.ApplyFromSettings()`).
+- **Volume slider:** at 100% the track now paints fully filled (no gray cap at the end).
 
 ## 2026-07-14 — Roadmap batch v0.8.12 → v0.9.4 (minus DLNA)
 
@@ -379,3 +414,224 @@ Shipped full plan except DLNA/Cast:
 - **Downloader link:** Reads `YouTubeToMp3/settings.json`, watches music output folder for new files.
 - **Roadmap:** `docs/roadmap.md` phases feature catalogue into library → integration → power tools → audiophile playback.
 - **User direction:** Local-only library controller (no store); goal is iTunes-class depth over multiple phases; v1 priority = library + playback core.
+
+## 2026-07-15 — Album cover download crash fix
+
+- **Symptom:** Hub crashed when changing album cover via Edit album → Fetch online (Apple/Deezer download).
+- **Likely causes:** Full-resolution cover decoded into WPF memory; UI progress updates off dispatcher; tag write racing downloader/playback file lock on FLAC.
+- **Fixes:** `CoverArtHelper.NormalizeDownloadedCover` + bounded `DecodePixelWidth`; dispatcher-marshalled progress in `MusicBrainzAlbumCoverWindow`; retrying tag/cover writes via `AudioFileAccess`; top-level try/catch in `EditAlbum_OnClick`; runtime errors log to `%LocalAppData%\LocalMusicHub\crash.log` instead of hard shutdown.
+
+## 2026-07-15 — Playback UI fixes (volume static, seek bar, special chars)
+
+- **Volume static:** Replaced NAudio `VolumeSampleProvider` with `SmoothVolumeSampleProvider` — ramps gain per audio buffer (~20–40 ms) to avoid zipper noise when dragging the volume slider during playback.
+- **Seek bar cuts back:** `PositionSlider` now previews time labels while dragging; actual `Seek()` runs only on mouse-up or lost capture (`FinishSeekFromSlider`), so position timer updates no longer fight mid-drag seeks.
+- **Special characters (e.g. Équinoxe):** `TagTextHelper.Clean` fixes Latin-1 mojibake and falls back to the on-disk filename when tag title contains U+FFFD. `AudioTagReader` uses it for artist/album/title. Existing library may need **Rescan library** to refresh SQLite titles.
+- **Built & synced:** v0.11.0 → `%LocalAppData%\Programs\LocalMusicHub\`.
+
+## 2026-07-15 — Seek bar scrubbing fix (v0.11.0)
+
+- **Symptom:** Track position slider jumped back while dragging during playback (e.g. 0:05 → 1:05), even after the first seek-on-release attempt.
+- **Root causes:**
+  - `_seeking` was cleared **before** `Seek()` and `RefreshNowPlaying()`, so the 250 ms position timer and `StateChanged` handlers could overwrite the slider with the old playback position between release and commit.
+  - `RefreshNowPlaying()` always updated elapsed/remaining labels from `_playback.Position` during scrubbing, fighting the drag preview.
+  - `PreviewMouseDown`/`PreviewMouseUp` alone are unreliable for thumb drags; no `_suppressPositionSlider` guard on programmatic slider updates (unlike volume).
+  - Mini player has **no** position slider — bug was main-window only.
+- **Fix (`MainWindow.xaml.cs`):**
+  - `_positionScrubbing` + `_suppressPositionSlider` + `_positionSeekCommitted` (prevents double seek on `DragCompleted` + `MouseUp`).
+  - Thumb `DragStarted`/`DragCompleted` hooked in `MainWindow_OnLoaded`; track click-to-jump still uses `PreviewMouseDown`/`Up` + `LostMouseCapture`.
+  - While scrubbing: position timer skipped; slider and time labels driven only by user drag (preview).
+  - On release: single `CommitPositionSeek()` — `Seek()`, then pin slider fraction and labels to target before clearing scrub state.
+  - `RefreshNowPlaying()` skips slider/label updates while `_positionScrubbing`.
+- **`PlaybackService.Seek`:** raises `PositionChanged` with the clamped relative target (not a re-read that could lag).
+- **Scrubbing mode:** **Seek-on-release only** — audio does not follow the thumb mid-drag; labels preview the target time.
+- **Built & synced:** v0.11.0 → `%LocalAppData%\Programs\LocalMusicHub\`.
+
+## 2026-07-15 — Volume slider ramp fix (v0.11.0)
+
+- **Symptom:** Volume still crackly/static when dragging during playback; ramp down felt sluggish.
+- **Root cause:** `SmoothVolumeSampleProvider` advanced gain once per audio buffer (`step = delta * 0.08`) and applied a single flat multiplier to every sample in that buffer — step discontinuities between buffers caused zipper noise; exponential decay needed many buffers (~1s+) for large decreases.
+- **Fix:** Per-frame linear ramp over **5 ms** (~220 frames @ 44.1 kHz); retargets from current gain when slider moves mid-ramp; snaps tiny deltas. Volume slider wiring (`_suppressVolumeSlider`, linear 0–1) unchanged — not the issue.
+- **Built & synced:** v0.11.0 → `%LocalAppData%\Programs\LocalMusicHub\`.
+
+## 2026-07-15 — Volume slider fill at max
+
+- **Symptom:** Volume bar left a gray cap on the right at max volume.
+- **Cause:** Fill border extended only 6 px past thumb center; `Value == 1` DataTrigger missed float drift (e.g. 0.999…).
+- **Fix:** `HubSliderDecrease` right margin `-6` → `-12`; `SliderNearMaxConverter` (≥ 0.995) drives full-track fill on `HubSliderHorizontalAutoThumb` in both themes.
+
+## 2026-07-15 — Seek bar click-to-jump fix
+
+- **Symptom:** Clicking the position slider (`IsMoveToPointEnabled`) moved the thumb briefly then snapped back; no seek.
+- **Cause:** Built-in move-to-point marks mouse events handled, so `PreviewMouseUp` never committed; value could update before scrub state started.
+- **Fix:** `PreviewMouseLeftButtonUp` with `handledEventsToo`; start scrub on `ValueChanged` when mouse is down; defer `CommitPositionSeek` one dispatcher frame so slider value is final before read.
+
+## 2026-07-15 — Gapless/crossfade now-playing sync
+
+- **Symptom:** Near track end, remaining time jumped up; next track played but now-playing bar still showed previous track.
+- **Cause:** `GaplessSampleProvider` swapped audio readers without advancing queue index or firing `TrackChanged`; position came from the new reader while duration still reflected the old track. Crossfade also started at track **beginning** instead of the last N seconds.
+- **Fix:** `TrackAdvanced` event on gapless swap → advance queue, sync `_reader`, `TrackChanged`, preload next. Duration prefers library metadata; position clamped to duration. Crossfade begins only when remaining ≤ crossfade window (`UpdateTransitionState` on position timer).
+
+## 2026-07-15 — Base feature polish pass (v0.11.0)
+
+- **Audit:** Library/playback/queue/downloader integration solid; no automated tests; DLNA not shipped.
+- **Quick fixes applied:** transport speed persists via `App.SaveSettings()`; library/ReplayGain scan error dialogs; `LoadCurrent` try/catch; album card + mini player vector icons; README/releasing.md → 0.11.0.
+- **Deferred:** remove orphan `CoverAdjustWindow`/`AlbumEditWindow`; mini player seek/volume; rescan for mojibake titles; crossfade-only edge cases without gapless.
+
+## 2026-07-19 — Album editor: per-track metadata
+
+- **Ask:** Make more song details editable from the album edit dialog (like Windows file properties).
+- **Change:** `AlbumEditorWindow` now has album-level **Year** and **Genre** (applied to all tracks), plus a **Tracks** list to edit **#**, **Title**, and **Artist** per song. CUE virtual tracks show read-only. Save writes tags + updates library DB.
+- **Files:** `AlbumEditorWindow.xaml`, `AlbumEditorWindow.xaml.cs`, `MainWindow.xaml.cs` (`EditAlbum_OnClick`).
+- **Built & synced:** v0.11.0 → `%LocalAppData%\Programs\LocalMusicHub\`.
+
+## 2026-07-19 — Album editor: comments, date released, rating
+
+- **Ask:** Add Comments, Date released, and Rating to album editor.
+- **Album-level:** **Date released** (year or full date) and **Comments** (multiline) apply to all tracks; written to file tags (`RELEASEDATE`/`TDRL`, `COMMENT`) and SQLite.
+- **Per-track:** **Rating** column (0–5 stars) in track grid; library DB only (same as tag editor).
+- **Plumbing:** `LibraryTrack.Comment`, `LibraryTrack.DateReleased`; `AudioTagReader`/`AudioTagWriter`; DB columns `comment`, `date_released`.
+- **Built & synced:** v0.11.0 → `%LocalAppData%\Programs\LocalMusicHub\`.
+
+## 2026-07-19 — Startup performance fix
+
+- **Symptom:** App took a long time to open.
+- **Root causes:** UI thread blocked on startup loading playlist tree (cover mosaics per playlist; smart playlists ran full `SELECT *`) and home carousels (N+1 album metadata + cover blob queries).
+- **Fixes:** Defer library load to background; playlist nav skips covers on startup; batch album cover/metadata queries; lightweight smart-playlist cover query; SQLite WAL mode.
+- **Built & synced:** v0.11.0 → `%LocalAppData%\Programs\LocalMusicHub\`.
+
+## 2026-07-19 — Startup performance pass 2
+
+- **Still slow after pass 1:** SQLite opened in `MainWindow` field initializer (before window paint); cover JPEG decode on UI thread when home grid bound; 15× `PRAGMA table_info` per launch; folder watcher/downloader init on UI thread in `Loaded`.
+- **Fixes:** Lazy `LibraryDataServices` (DB opens on background thread during library load); defer downloader/discord/folder-watcher/media-keys to `DispatcherPriority.Background`; pre-decode album thumbnails off UI (`CoverThumbnail`); schema version cache in `app_meta` skips repeat migrations.
+- **Built & synced:** v0.11.0 → `%LocalAppData%\Programs\LocalMusicHub\` (shortcuts updated).
+
+## 2026-07-15 — Album grid crash fix
+
+- **Symptom:** Crash opening Albums/home grid (`Cannot find resource named 'IconPlayGeo'`).
+- **Cause:** Polish pass moved album play button to vector `Path` using `{StaticResource IconPlayGeo}` before geometry was defined in `Window.Resources`.
+- **Fix:** Define `IconPlayGeo` / `IconPauseGeo` at top of resource dictionary (before `AlbumGridItemTemplate`).
+
+## 2026-07-19 — Smart playlist editor dark theme + playlist mosaic covers
+
+- **Ask:** Smart playlist editor ComboBoxes bright white in dark mode; playlist thumbnail shows 4× same cover when playlist has 2 albums (e.g. Minecraft Alpha + Beta OR rules).
+- **ComboBox fix:** Code-created rule dropdowns now use `HubComboBox` / new `HubEditableComboBox` theme styles (`SmartPlaylistEditorWindow.xaml.cs`, `HubThemeDark.xaml`, `HubThemeLight.xaml`).
+- **Mosaic fix:** `LoadPlaylistCoverTiles` picks one cover per distinct album (`ROW_NUMBER` partition by album), then dedupes identical cover blobs before mosaic (`LibraryRepository.cs`). Two albums → side-by-side split in `BuildMosaic`.
+- **Built:** Release compile OK; sync to `%LocalAppData%\Programs\LocalMusicHub\` may need app closed if running (robocopy exit 11).
+
+## 2026-07-19 — Startup timing log
+
+- **Ask:** Startup still feels slow after perf passes; add a log showing how long each open phase takes.
+- **Change:** New `StartupProfiler` writes append-only `startup-timing.log` under `%LocalAppData%\LocalMusicHub\` with per-phase ms deltas + “slowest phases” summary. Instrumented: `App.OnStartup`, `MainWindow` ctor/`InitializeComponent`, first paint (`ContentRendered`), deferred init, library DB open, track count, playlist tree, home album queries, thumbnail warm, UI bind.
+- **Setting:** `LogStartupTiming` (default `true`) in `AppSettings`.
+- **Next:** User opens app once, shares log — use slowest lines to target real bottleneck.
+
+## 2026-07-19 — Startup lazy service init
+
+- **Log finding:** ~48–56 s gap before `mainwindow.ctor.enter`; library load only ~500 ms. Bottleneck was eager field init of NAudio/Discord/downloader services on `MainWindow` construction.
+- **Change:** `MainWindow.LazyServices.cs` — lazy properties for `Playback`, `DownloaderBridge`, `Discord`, `Tray`, etc. Slim ctor (theme + XAML only). Playback/downloader wired on first use; `EnsurePlaybackConfigured` deferred to `DispatcherPriority.Background` after window loads.
+- **Built & synced:** v0.11.0 → `%LocalAppData%\Programs\LocalMusicHub\`.
+
+## 2026-07-19 — Startup UI freeze after lazy init
+
+- **Symptom:** Fast startup but blank/non-interactive UI stuck on "Loading library…".
+- **Cause (log):** Library data ready at ~814 ms but UI update queued behind `DeferSecondaryInitialization` blocking UI thread ~39 s (Discord/downloader/folder watcher).
+- **Fix:** Heavy defer work moved to `Task.Run`; library load applies via `Dispatcher.BeginInvoke(Normal)` independent of defer. `ApplyInitialLibraryLoad` extracted.
+
+## 2026-07-19 — Startup UI freeze pass 2
+
+- **Symptom:** Window opens fast but home unusable ~40 s; log showed `library.bg_task.done` at ~900 ms but `library.ui.show_home` at ~41 s.
+- **Cause:** `defer.secondary` UI callback (lyrics prefetch init + startup import) ran synchronously on UI thread ~40 s, blocking library UI queue.
+- **Fix:** All heavy defer work stays on background thread; no UI-thread `ContinueWith`. Library UI posts at `Loaded` priority immediately. Folder watcher suppressed until home ready; `BeginInvoke` instead of `Invoke` for refresh handlers.
+
+## 2026-07-19 — Scan specific folders
+
+- **Ask:** Rescan specific folders instead of whole library only.
+- **Change:** `Scan folders…` button (header + Library tools). `ScanFoldersWindow` picks library folders or browses to add one. `LibraryScanner.ScanFoldersAsync` + `RemoveMissingPathsUnderRoots` — only adds/updates/removes tracks under selected folders; rest of library untouched. Full **Scan library** unchanged.
+
+## 2026-07-19 — Settings hang on open
+
+- **Symptom:** After fast startup, clicking **Settings** froze the app.
+- **Cause:** `Settings_OnClick` accessed `LyricsPrefetch` lazy property, which created `LyricsPrefetchService` on the UI thread. Constructor called `TryResumeSavedJob()`, looping thousands of pending paths with `File.Exists` + disk snapshot writes per track.
+- **Fix:** Settings opens without creating lyrics service (`() => _lyricsPrefetchService`). Lyrics only created on background when user clicks download buttons (`Task.Run(EnsureLyricsPrefetch)`). `TryResumeSavedJob` moved to worker thread; batched job snapshots during resume (`_resumingJob`). Other `LyricsPrefetch` usages switched to `_lyricsPrefetchService?.Enqueue` or background `EnsureLyricsPrefetch`.
+
+## 2026-07-19 — Global theme consistency
+
+- **Ask:** All UI in Settings and everywhere else should use the current theme (dark/light).
+- **Cause:** Many controls (ComboBox, PasswordBox, CheckBox, ListView, separators, context menus) had no explicit Hub style and fell back to WPF defaults (white backgrounds in dark mode).
+- **Fix:** Added implicit default styles in `HubThemeDark.xaml` and `HubThemeLight.xaml` for ComboBox, PasswordBox, TextBox, CheckBox, Separator, ListView/ListViewItem, GridViewColumnHeader, ContextMenu, MenuItem, ToolTip. Fixed `HubBodyText` to use `HubTextPrimaryBrush` instead of hardcoded colors. Built & synced v0.11.0.
+
+## 2026-07-19 — Crossfade + gapless double-start
+
+- **Symptom:** With both crossfade and gapless on, next track starts, cuts off, then starts again (even at 1 s crossfade).
+- **Cause:** Gapless auto-switched to the preloaded next track at EOF while crossfade was already playing the next track from a separate reader — two competing handoffs.
+- **Fix:** When crossfade is enabled, gapless `AutoAdvance` is off and gapless does not preload next; crossfade owns the transition, hands off the positioned reader on `CrossfadeCompleted`, and continues intro audio if the outro ends first. Settings hint added.
+
+## 2026-07-19 — Crossfade audible cut between tracks
+
+- **Symptom:** No double-start, but a noticeable cut/gap during crossfade transitions.
+- **Causes:** (1) Crossfade start only polled every 250 ms — could miss the overlap window. (2) Fade length ignored channel count (stereo fades were half as long as configured, handing off before the outro finished). (3) Linear crossfade dips volume mid-blend. (4) Handoff/UI work on the audio thread could glitch output.
+- **Fix:** Sample-accurate crossfade start inside `CrossfadeSampleProvider.Read`, correct fade sample count (`rate × channels`), equal-power sin/cos blend curve, cached fade sample provider, defer preload/UI after handoff to thread pool. Built & synced v0.11.0.
+
+## 2026-07-19 — Crossfade post-blend cut + home covers vanish
+
+- **Crossfade cut:** Handoff created a new `ToSampleProvider()` on the incoming reader, causing a tiny discontinuity after the blend. Now passes the live sample provider through `AdoptCurrent`; intro-only phase applies proper gain ramp.
+- **Home covers:** Playing an album called `ShowHome()` to refresh Jump Back In, but re-fetched albums without `WarmAlbumThumbnails`. Covers bound to null `CoverThumbnail`. Fixed by warming thumbnails in `ShowHome()` every time.
+
+## 2026-07-19 — Crossfade cut: pipeline order
+
+- **Symptom:** Small gap/cut still audible after crossfade blend, especially at handoff.
+- **Cause:** Crossfade was **after** EQ/volume/speed — outgoing track was processed, incoming track mixed as raw PCM. At handoff, incoming suddenly went through the full effects chain → discontinuity.
+- **Fix:** Moved crossfade immediately after gapless (before EQ/volume/speed). Both tracks mixed dry, then shared processing. On handoff: adopt same sample provider, apply new track ReplayGain (smooth volume ramp), reset speed interpolator.
+
+## 2026-07-19 — Tray icon visible while window open
+
+- **Ask:** App open should show both main window and system tray icon; closing window should still honor “stay in tray” setting.
+- **Cause:** `OnTrayPreferenceChanged` called `HideTrayIcon()` whenever the window was visible and minimize-to-tray was off — tray only appeared after closing/hiding the window.
+- **Fix:** Always `ShowTrayIcon()` on load and when preferences change. Close-to-tray behavior unchanged (`MainWindow_OnClosing`). Settings label clarified: tray stays visible; checkbox only controls close behavior.
+
+## 2026-07-19 — Crossfade cut at track-change handoff
+
+- **Symptom:** Crossfade blend sounds smooth, but a very short cut/gap occurs exactly when the track metadata changes; playback then continues at the correct crossfade position.
+- **Likely causes:** (1) ReplayGain jumped to the new track only at handoff while the blend still used the old track’s gain. (2) Handoff ran mid-buffer on the audio thread (dispose + adopt). (3) Last fade frame not at full incoming gain. (4) Wasapi could spuriously stop when outgoing EOF hit while crossfade still had incoming audio.
+- **Fix:** Ramp ReplayGain to the next track over the crossfade duration when fade starts (`CrossfadeStarted` + `SmoothVolumeSampleProvider.RampTo`). Defer handoff event to the start of the next audio buffer (`_pendingHandoff`). Snap incoming/outgoing gains on the last frame. Dispose outgoing readers on a background thread. Resume playback if Wasapi stops during an active crossfade.
+
+## 2026-07-19 — Local dev versioning + crossfade attempt 2 (v0.11.1)
+
+- **Ask:** Bump local version on each fix attempt; accumulate changelog for a future release (no publish).
+- **Added:** `docs/UNRELEASED.md` for in-progress notes; `Directory.Build.props` → **0.11.1**.
+- **Crossfade cut (attempt 2):** Removed intro-only read path (single mixed path always). Gapless pads outgoing EOF with silence during reserved incoming (`ReserveIncoming` at fade start, `CommitIncoming` at handoff) so Wasapi never gets zero-length reads mid-transition.
+
+## 2026-07-19 — Settings lost on rebuild (v0.11.2)
+
+- **Symptom:** Gapless, crossfade, Discord client ID (and possibly other settings) reset after dev rebuild/sync.
+- **Likely cause:** Build script force-killed the app while `settings.json` was being written (startup used to save on every launch; kill mid-write → corrupt file → load fell back to defaults).
+- **Fix:** Atomic settings save + `.bak` recovery; graceful shutdown via `shutdown.request` before force-kill; removed unconditional startup save; `App.OnExit` flushes settings.
+
+## 2026-07-19 — Playback bar stuck at ~3s (v0.11.3)
+
+- **Symptom:** After crossfade improvements, audio plays but elapsed/seek bar freezes (~3s into a song).
+- **Cause:** Position read from the outgoing `AudioFileReader` while crossfade audio came from a separate `ToSampleProvider()` wrapper on the incoming reader — `CurrentTime` stopped advancing after handoff.
+- **Fix:** Read/decode via `AudioFileReader` directly as `ISampleProvider`; `GaplessSampleProvider.PositionReader` switches to incoming stream once outgoing hits EOF during overlap.
+
+## 2026-07-19 — Smooth seek bar (v0.11.4)
+
+- **Ask:** Seek bar feels clunky on short tracks (e.g. 3 s); user happy with crossfade quality.
+- **Fix:** While playing, slider moves every display frame with interpolated position between 250 ms audio samples; heavy tick work unchanged. Sub-30 s tracks round elapsed labels to 100 ms to avoid digit flicker.
+
+## 2026-07-19 — Seek bar bounce (v0.11.5)
+
+- **Symptom:** Seek bar drifted forward smoothly then snapped back slightly ~every second.
+- **Cause:** 250 ms hard re-sync to `Playback.Position` while frame interpolation ran slightly ahead of decode position.
+- **Fix:** Gentle clock steering for drift; anchor only resets on play/seek/track change; slider never moves backward during normal playback.
+
+## 2026-07-19 — Seek bar micro-bounce on short tracks (v0.11.6)
+
+- **Symptom:** Barely noticeable snap-back remained on ~3 s tracks.
+- **Fix:** Removed backward drift steering; slider strictly monotonic while playing; skip drift reconcile on tracks under 20 s.
+
+## 2026-07-19 — Theming architecture exploration
+
+- **Report:** Two-layer theming — `HubThemeDark.xaml` / `HubThemeLight.xaml` (base palette + shared control styles) swapped at runtime; accent colors overridden at app level via `HubTheme.ApplyAccent` (`purple`, `spotify` only).
+- **Settings:** Appearance section in `SettingsWindow.xaml` — dark checkbox + accent ComboBox; applies on Save (`MainWindow` calls `HubTheme.ApplyFromSettings` + `Tray.ApplyTheme`).
+- **Gaps / quick wins:** `HubPrimaryButton` hardcodes `White` (breaks Spotify dark-on-green); shuffle/repeat icons not refreshed after theme save; `LibraryToolsWindow` missing `HubTheme.Ensure`; `StarRatingControl` caches accent brush on Loaded only; tray menu ignores accent.
+- **Extension path:** Preset catalog in `HubTheme.ResolveAccent` + ComboBox items; custom accent via `AccentTheme=custom` + `CustomAccentColor` hex + contrast-based `HubPrimaryForegroundColor`.

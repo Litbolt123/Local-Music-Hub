@@ -26,11 +26,13 @@ public sealed class LibraryRepository
                 INSERT INTO tracks (
                     file_path, title, artist, album, album_artist, track_number, year, genre,
                     duration_ms, bitrate, format, date_added_utc, file_modified_utc, cover_art,
-                    play_count, last_played_utc, rating, cue_start_ms, cue_end_ms, review_status)
+                    play_count, last_played_utc, rating, cue_start_ms, cue_end_ms, review_status,
+                    comment, date_released)
                 VALUES (
                     $file_path, $title, $artist, $album, $album_artist, $track_number, $year, $genre,
                     $duration_ms, $bitrate, $format, $date_added_utc, $file_modified_utc, $cover_art,
-                    $play_count, $last_played_utc, $rating, $cue_start_ms, $cue_end_ms, $review_status)
+                    $play_count, $last_played_utc, $rating, $cue_start_ms, $cue_end_ms, $review_status,
+                    $comment, $date_released)
                 ON CONFLICT(file_path) DO UPDATE SET
                     title = excluded.title,
                     artist = excluded.artist,
@@ -45,7 +47,9 @@ public sealed class LibraryRepository
                     file_modified_utc = excluded.file_modified_utc,
                     cover_art = excluded.cover_art,
                     cue_start_ms = excluded.cue_start_ms,
-                    cue_end_ms = excluded.cue_end_ms;
+                    cue_end_ms = excluded.cue_end_ms,
+                    comment = excluded.comment,
+                    date_released = excluded.date_released;
                 """;
             AddTrackParams(cmd, track);
             cmd.ExecuteNonQuery();
@@ -108,7 +112,9 @@ public sealed class LibraryRepository
                     year = $year,
                     genre = $genre,
                     cover_art = $cover_art,
-                    file_modified_utc = $file_modified_utc
+                    file_modified_utc = $file_modified_utc,
+                    comment = $comment,
+                    date_released = $date_released
                 WHERE id = $id;
                 """;
             cmd.Parameters.AddWithValue("$id", track.Id);
@@ -121,6 +127,8 @@ public sealed class LibraryRepository
             cmd.Parameters.AddWithValue("$genre", track.Genre);
             cmd.Parameters.AddWithValue("$cover_art", (object?)track.CoverArt ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$file_modified_utc", track.FileModifiedUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$comment", track.Comment);
+            cmd.Parameters.AddWithValue("$date_released", track.DateReleased);
             cmd.ExecuteNonQuery();
         }
     }
@@ -336,6 +344,95 @@ public sealed class LibraryRepository
         }
     }
 
+    public void RemoveMissingPathsUnderRoots(IEnumerable<string> roots, IEnumerable<string> existingPaths)
+    {
+        var rootPaths = roots
+            .Where(r => !string.IsNullOrWhiteSpace(r) && Directory.Exists(r))
+            .Select(NormalizeDirectoryPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (rootPaths.Count == 0)
+            return;
+
+        lock (_gate)
+        {
+            var keep = existingPaths.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            using var select = _db.Connection.CreateCommand();
+            select.CommandText = "SELECT file_path FROM tracks";
+            var toDelete = new List<string>();
+            using (var reader = select.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    var path = reader.GetString(0);
+                    if (!IsUnderAnyRoot(path, rootPaths))
+                        continue;
+                    if (keep.Contains(path))
+                        continue;
+                    var audioPath = CuePathHelper.ResolveAudioPath(path);
+                    if (keep.Contains(audioPath))
+                        continue;
+                    toDelete.Add(path);
+                }
+            }
+
+            foreach (var path in toDelete)
+            {
+                using var idCmd = _db.Connection.CreateCommand();
+                idCmd.CommandText = "SELECT id FROM tracks WHERE file_path = $path";
+                idCmd.Parameters.AddWithValue("$path", path);
+                var idObj = idCmd.ExecuteScalar();
+                if (idObj is long or int)
+                {
+                    var id = Convert.ToInt64(idObj);
+                    using var delPt = _db.Connection.CreateCommand();
+                    delPt.CommandText = "DELETE FROM playlist_tracks WHERE track_id = $id";
+                    delPt.Parameters.AddWithValue("$id", id);
+                    delPt.ExecuteNonQuery();
+                }
+
+                using var del = _db.Connection.CreateCommand();
+                del.CommandText = "DELETE FROM tracks WHERE file_path = $path";
+                del.Parameters.AddWithValue("$path", path);
+                del.ExecuteNonQuery();
+            }
+        }
+    }
+
+    private static string NormalizeDirectoryPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static bool IsUnderAnyRoot(string filePath, IReadOnlyList<string> rootPaths)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return false;
+
+        string fullFile;
+        try
+        {
+            fullFile = Path.GetFullPath(filePath);
+        }
+        catch
+        {
+            return false;
+        }
+
+        foreach (var root in rootPaths)
+        {
+            if (string.Equals(fullFile, root, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var prefix = root + Path.DirectorySeparatorChar;
+            if (fullFile.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
     public IReadOnlyList<LibraryTrack> GetAllTracks(string? search = null) =>
         QueryTracks(search, filters: null);
 
@@ -484,6 +581,7 @@ public sealed class LibraryRepository
             }
 
             var albums = new List<LibraryAlbum>(groups.Count);
+            var coverMap = LoadAlbumCoverMap(groups.Keys);
             foreach (var agg in groups.Values)
             {
                 albums.Add(new LibraryAlbum
@@ -493,7 +591,7 @@ public sealed class LibraryRepository
                     AlbumArtist = PickCanonicalArtist(agg.AlbumArtistVotes, agg.ArtistVotes),
                     TrackCount = agg.TrackCount,
                     Year = agg.Year,
-                    CoverArt = LoadOneCoverForAlbum(agg.Key),
+                    CoverArt = coverMap.GetValueOrDefault(agg.Key),
                 });
             }
 
@@ -504,18 +602,43 @@ public sealed class LibraryRepository
         }
     }
 
-    private byte[]? LoadOneCoverForAlbum(string albumKey)
+    private byte[]? LoadOneCoverForAlbum(string albumKey) =>
+        LoadAlbumCoverMap([albumKey]).GetValueOrDefault(albumKey);
+
+    private Dictionary<string, byte[]> LoadAlbumCoverMap(IEnumerable<string> keys)
     {
+        var keyList = keys.Distinct(StringComparer.Ordinal).ToList();
+        if (keyList.Count == 0)
+            return new Dictionary<string, byte[]>(StringComparer.Ordinal);
+
         using var cmd = _db.Connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT cover_art FROM tracks
-            WHERE LOWER(TRIM(COALESCE(NULLIF(album, ''), 'Unknown Album'))) = $key
-              AND cover_art IS NOT NULL
-            LIMIT 1
+        var placeholders = string.Join(",", keyList.Select((_, i) => $"$k{i}"));
+        for (var i = 0; i < keyList.Count; i++)
+            cmd.Parameters.AddWithValue($"$k{i}", keyList[i]);
+
+        cmd.CommandText = $"""
+            SELECT album_key, cover_art FROM (
+                SELECT LOWER(TRIM(COALESCE(NULLIF(album, ''), 'Unknown Album'))) AS album_key,
+                       cover_art,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY LOWER(TRIM(COALESCE(NULLIF(album, ''), 'Unknown Album')))
+                           ORDER BY id) AS rn
+                FROM tracks
+                WHERE cover_art IS NOT NULL
+                  AND LOWER(TRIM(COALESCE(NULLIF(album, ''), 'Unknown Album'))) IN ({placeholders})
+            )
+            WHERE rn = 1
             """;
-        cmd.Parameters.AddWithValue("$key", albumKey);
-        var result = cmd.ExecuteScalar();
-        return result is byte[] { Length: > 0 } bytes ? bytes : null;
+
+        var map = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (!reader.IsDBNull(1))
+                map[reader.GetString(0)] = (byte[])reader.GetValue(1);
+        }
+
+        return map;
     }
 
     private static string PickCanonicalArtist(
@@ -887,7 +1010,7 @@ public sealed class LibraryRepository
     private static string NormalizeDupKey(string value) =>
         string.IsNullOrWhiteSpace(value) ? "" : value.Trim().ToLowerInvariant();
 
-    public IReadOnlyList<LibraryPlaylist> GetPlaylists()
+    public IReadOnlyList<LibraryPlaylist> GetPlaylists(bool includeCoverArt = true)
     {
         lock (_gate)
         {
@@ -919,7 +1042,7 @@ public sealed class LibraryRepository
                     IsSmart = isSmart,
                     Rules = rules,
                     TrackCount = trackCount,
-                    CoverArt = LoadPlaylistCoverTiles(id, isSmart, rules),
+                    CoverArt = includeCoverArt ? LoadPlaylistCoverTiles(id, isSmart, rules) : null,
                     FolderId = folderId,
                 });
             }
@@ -1141,12 +1264,12 @@ public sealed class LibraryRepository
         }
     }
 
-    public IReadOnlyList<PlaylistTreeNode> GetPlaylistTree()
+    public IReadOnlyList<PlaylistTreeNode> GetPlaylistTree(bool includeCoverArt = false)
     {
         lock (_gate)
         {
             var folders = GetPlaylistFolders();
-            var playlists = GetPlaylists();
+            var playlists = GetPlaylists(includeCoverArt);
             return BuildPlaylistTreeNodes(null, folders, playlists);
         }
     }
@@ -1309,12 +1432,15 @@ public sealed class LibraryRepository
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                var key = reader.GetString(0);
-                var name = reader.GetString(1);
-                albums.Add(BuildAlbumFromKey(key, name));
+                albums.Add(new LibraryAlbum
+                {
+                    Key = reader.GetString(0),
+                    Album = reader.GetString(1),
+                    AlbumArtist = "",
+                });
             }
 
-            return albums;
+            return MaterializeAlbums(albums);
         }
     }
 
@@ -1339,56 +1465,120 @@ public sealed class LibraryRepository
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                var key = reader.GetString(0);
-                var name = reader.GetString(1);
-                albums.Add(BuildAlbumFromKey(key, name));
+                albums.Add(new LibraryAlbum
+                {
+                    Key = reader.GetString(0),
+                    Album = reader.GetString(1),
+                    AlbumArtist = "",
+                });
             }
 
-            return albums;
+            return MaterializeAlbums(albums);
         }
     }
 
-    private LibraryAlbum BuildAlbumFromKey(string key, string albumName)
+    private List<LibraryAlbum> MaterializeAlbums(List<LibraryAlbum> shells)
     {
-        using var cmd = _db.Connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT album_artist, artist, year
-            FROM tracks
-            WHERE LOWER(TRIM(COALESCE(NULLIF(album, ''), 'Unknown Album'))) = $key
-            """;
-        cmd.Parameters.AddWithValue("$key", key);
+        if (shells.Count == 0)
+            return shells;
 
-        var albumArtistVotes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var artistVotes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        int? year = null;
-        var trackCount = 0;
+        var keys = shells.Select(a => a.Key).ToList();
+        var summaries = LoadAlbumSummaries(keys);
+        var coverMap = LoadAlbumCoverMap(keys);
+        for (var i = 0; i < shells.Count; i++)
+        {
+            var shell = shells[i];
+            summaries.TryGetValue(shell.Key, out var summary);
+            shells[i] = new LibraryAlbum
+            {
+                Key = shell.Key,
+                Album = shell.Album,
+                AlbumArtist = summary?.AlbumArtist ?? "Unknown Artist",
+                TrackCount = summary?.TrackCount ?? 0,
+                Year = summary?.Year,
+                CoverArt = coverMap.GetValueOrDefault(shell.Key),
+            };
+        }
+
+        return shells;
+    }
+
+    private Dictionary<string, AlbumSummary> LoadAlbumSummaries(IReadOnlyList<string> keys)
+    {
+        if (keys.Count == 0)
+            return new Dictionary<string, AlbumSummary>(StringComparer.Ordinal);
+
+        using var cmd = _db.Connection.CreateCommand();
+        var placeholders = string.Join(",", keys.Select((_, i) => $"$k{i}"));
+        for (var i = 0; i < keys.Count; i++)
+            cmd.Parameters.AddWithValue($"$k{i}", keys[i]);
+
+        cmd.CommandText = $"""
+            SELECT
+                LOWER(TRIM(COALESCE(NULLIF(album, ''), 'Unknown Album'))) AS album_key,
+                album_artist,
+                artist,
+                year
+            FROM tracks
+            WHERE LOWER(TRIM(COALESCE(NULLIF(album, ''), 'Unknown Album'))) IN ({placeholders})
+            """;
+
+        var groups = new Dictionary<string, AlbumAgg>(StringComparer.Ordinal);
         using (var reader = cmd.ExecuteReader())
         {
             while (reader.Read())
             {
-                trackCount++;
-                var albumArtist = reader.IsDBNull(0) ? "" : reader.GetString(0);
-                var artist = reader.IsDBNull(1) ? "" : reader.GetString(1);
-                if (!string.IsNullOrWhiteSpace(albumArtist))
-                    albumArtistVotes[albumArtist] = albumArtistVotes.GetValueOrDefault(albumArtist) + 1;
-                if (!string.IsNullOrWhiteSpace(artist))
-                    artistVotes[artist] = artistVotes.GetValueOrDefault(artist) + 1;
-                if (!reader.IsDBNull(2))
+                var key = reader.GetString(0);
+                if (!groups.TryGetValue(key, out var agg))
                 {
-                    var y = reader.GetInt32(2);
-                    if (y > 0 && (year is null || y < year))
-                        year = y;
+                    agg = new AlbumAgg { Key = key, Album = key };
+                    groups[key] = agg;
+                }
+
+                agg.TrackCount++;
+                var albumArtist = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                var artist = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                if (!string.IsNullOrWhiteSpace(albumArtist))
+                    agg.AlbumArtistVotes[albumArtist] = agg.AlbumArtistVotes.GetValueOrDefault(albumArtist) + 1;
+                if (!string.IsNullOrWhiteSpace(artist))
+                    agg.ArtistVotes[artist] = agg.ArtistVotes.GetValueOrDefault(artist) + 1;
+                if (!reader.IsDBNull(3))
+                {
+                    var year = reader.GetInt32(3);
+                    if (year > 0 && (agg.Year is null || year < agg.Year))
+                        agg.Year = year;
                 }
             }
         }
 
+        return groups.ToDictionary(
+            kv => kv.Key,
+            kv => new AlbumSummary
+            {
+                TrackCount = kv.Value.TrackCount,
+                AlbumArtist = PickCanonicalArtist(kv.Value.AlbumArtistVotes, kv.Value.ArtistVotes),
+                Year = kv.Value.Year,
+            },
+            StringComparer.Ordinal);
+    }
+
+    private sealed class AlbumSummary
+    {
+        public int TrackCount { get; init; }
+        public string AlbumArtist { get; init; } = "";
+        public int? Year { get; init; }
+    }
+
+    private LibraryAlbum BuildAlbumFromKey(string key, string albumName)
+    {
+        var summary = LoadAlbumSummaries([key]).GetValueOrDefault(key);
         return new LibraryAlbum
         {
             Key = key,
             Album = albumName,
-            AlbumArtist = PickCanonicalArtist(albumArtistVotes, artistVotes),
-            TrackCount = trackCount,
-            Year = year,
+            AlbumArtist = summary?.AlbumArtist ?? "Unknown Artist",
+            TrackCount = summary?.TrackCount ?? 0,
+            Year = summary?.Year,
             CoverArt = LoadOneCoverForAlbum(key),
         };
     }
@@ -1442,6 +1632,8 @@ public sealed class LibraryRepository
         cmd.Parameters.AddWithValue("$cue_start_ms", (object?)track.CueStartMs ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$cue_end_ms", (object?)track.CueEndMs ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$review_status", string.IsNullOrWhiteSpace(track.ReviewStatus) ? "none" : track.ReviewStatus);
+        cmd.Parameters.AddWithValue("$comment", track.Comment);
+        cmd.Parameters.AddWithValue("$date_released", track.DateReleased);
     }
 
     internal static string NormalizeAlbumKey(string album)
@@ -1491,6 +1683,8 @@ public sealed class LibraryRepository
             TrackNumber = reader.IsDBNull(reader.GetOrdinal("track_number")) ? null : reader.GetInt32(reader.GetOrdinal("track_number")),
             Year = reader.IsDBNull(reader.GetOrdinal("year")) ? null : reader.GetInt32(reader.GetOrdinal("year")),
             Genre = reader.GetString(reader.GetOrdinal("genre")),
+            DateReleased = ReadOptionalString(reader, "date_released"),
+            Comment = ReadOptionalString(reader, "comment"),
             Duration = TimeSpan.FromMilliseconds(reader.GetInt64(reader.GetOrdinal("duration_ms"))),
             Bitrate = reader.GetInt32(reader.GetOrdinal("bitrate")),
             Format = reader.GetString(reader.GetOrdinal("format")),
@@ -1508,6 +1702,19 @@ public sealed class LibraryRepository
             CueEndMs = ReadNullableInt(reader, "cue_end_ms"),
             ReviewStatus = ReadReviewStatus(reader),
         };
+    }
+
+    private static string ReadOptionalString(SqliteDataReader reader, string column)
+    {
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return reader.IsDBNull(ordinal) ? "" : reader.GetString(ordinal);
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private static int? ReadNullableInt(SqliteDataReader reader, string column)
@@ -1546,18 +1753,43 @@ public sealed class LibraryRepository
         var tiles = new List<byte[]?>();
         if (isSmart)
         {
-            foreach (var track in QuerySmartPlaylistTracks(rules).Take(4))
-                tiles.Add(track.CoverArt);
+            using var cmd = _db.Connection.CreateCommand();
+            var where = SmartPlaylistEvaluator.BuildWhereClause(rules, cmd);
+            cmd.CommandText = $"""
+                SELECT cover_art
+                FROM (
+                    SELECT cover_art,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY LOWER(TRIM(COALESCE(NULLIF(album, ''), 'Unknown Album')))
+                               ORDER BY id) AS rn
+                    FROM tracks
+                    WHERE {where} AND cover_art IS NOT NULL
+                )
+                WHERE rn = 1
+                LIMIT 4
+                """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!reader.IsDBNull(0))
+                    tiles.Add((byte[])reader.GetValue(0));
+            }
         }
         else
         {
             using var cmd = _db.Connection.CreateCommand();
             cmd.CommandText = """
-                SELECT t.cover_art
-                FROM tracks t
-                INNER JOIN playlist_tracks pt ON pt.track_id = t.id
-                WHERE pt.playlist_id = $id AND t.cover_art IS NOT NULL
-                ORDER BY pt.position
+                SELECT cover_art
+                FROM (
+                    SELECT t.cover_art,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY LOWER(TRIM(COALESCE(NULLIF(t.album, ''), 'Unknown Album')))
+                               ORDER BY pt.position, t.id) AS rn
+                    FROM tracks t
+                    INNER JOIN playlist_tracks pt ON pt.track_id = t.id
+                    WHERE pt.playlist_id = $id AND t.cover_art IS NOT NULL
+                )
+                WHERE rn = 1
                 LIMIT 4
                 """;
             cmd.Parameters.AddWithValue("$id", playlistId);
@@ -1569,6 +1801,27 @@ public sealed class LibraryRepository
             }
         }
 
-        return CoverArtHelper.EncodeMosaicPng(tiles, 128);
+        return CoverArtHelper.EncodeMosaicPng(DistinctCoverTiles(tiles), 128);
+    }
+
+    private static List<byte[]?> DistinctCoverTiles(IEnumerable<byte[]?> tiles)
+    {
+        var result = new List<byte[]?>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var tile in tiles)
+        {
+            if (tile is not { Length: > 0 })
+                continue;
+
+            var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(tile));
+            if (!seen.Add(key))
+                continue;
+
+            result.Add(tile);
+            if (result.Count >= 4)
+                break;
+        }
+
+        return result;
     }
 }

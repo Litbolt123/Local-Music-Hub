@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using LocalMusicHub.Services;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
@@ -42,6 +43,8 @@ public partial class StarRatingControl
             CacheBrushes();
             ForcePaint();
         };
+        HubTheme.ThemeChanged += OnThemeChanged;
+        Unloaded += (_, _) => HubTheme.ThemeChanged -= OnThemeChanged;
     }
 
     public int Rating
@@ -96,6 +99,12 @@ public partial class StarRatingControl
             _stars[i - 1] = star;
             StarsHost.Children.Add(star);
         }
+    }
+
+    private void OnThemeChanged(object? sender, EventArgs e)
+    {
+        CacheBrushes();
+        ForcePaint();
     }
 
     private void CacheBrushes()

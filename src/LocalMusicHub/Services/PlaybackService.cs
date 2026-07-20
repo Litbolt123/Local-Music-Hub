@@ -9,7 +9,8 @@ public sealed class PlaybackService : IDisposable
     private IWavePlayer? _output;
     private AudioFileReader? _reader;
     private ISampleProvider? _sampleProvider;
-    private VolumeSampleProvider? _volumeProvider;
+    private SmoothVolumeSampleProvider? _volumeProvider;
+    private SpeedSampleProvider? _speedProvider;
     private float _replayGainLinear = 1f;
     private GaplessSampleProvider? _gapless;
     private CrossfadeSampleProvider? _crossfade;
@@ -22,6 +23,8 @@ public sealed class PlaybackService : IDisposable
     private PlaybackRepeatMode _repeatMode = PlaybackRepeatMode.Off;
     private double _volume = 0.85;
     private int? _cueEndMs;
+    private AudioFileReader? _crossfadeNextReader;
+    private volatile bool _crossfadeTransitionActive;
 
     public event EventHandler? StateChanged;
     public event EventHandler? TrackChanged;
@@ -45,9 +48,21 @@ public sealed class PlaybackService : IDisposable
             var reader = ActiveReader;
             if (reader is null)
                 return TimeSpan.Zero;
+
+            TimeSpan pos;
             if (CurrentTrack?.CueStartMs is int start)
-                return reader.CurrentTime - TimeSpan.FromMilliseconds(start);
-            return reader.CurrentTime;
+                pos = reader.CurrentTime - TimeSpan.FromMilliseconds(start);
+            else
+                pos = reader.CurrentTime;
+
+            if (pos < TimeSpan.Zero)
+                pos = TimeSpan.Zero;
+
+            var duration = Duration;
+            if (duration > TimeSpan.Zero && pos > duration)
+                return duration;
+
+            return pos;
         }
     }
 
@@ -58,13 +73,34 @@ public sealed class PlaybackService : IDisposable
             var track = CurrentTrack;
             if (track?.CueStartMs is int start && track.CueEndMs is int end)
                 return TimeSpan.FromMilliseconds(Math.Max(0, end - start));
-            return ActiveReader?.TotalTime ?? track?.Duration ?? TimeSpan.Zero;
+            if (track is not null && track.Duration > TimeSpan.Zero)
+                return track.Duration;
+            return ActiveReader?.TotalTime ?? TimeSpan.Zero;
         }
     }
     public double Volume => _volume;
     public IReadOnlyList<LibraryTrack> Queue => _queue;
 
-    private AudioFileReader? ActiveReader => _gapless?.CurrentReader ?? _reader;
+    public bool IsInCrossfadeTransition =>
+        _crossfadeTransitionActive
+        || _crossfade is { IsFading: true }
+        || _crossfade is { HasPendingHandoff: true };
+
+    private AudioFileReader? ActiveReader
+    {
+        get
+        {
+            if (_gapless is null)
+                return _reader;
+
+            // Keep reporting the outgoing stream until handoff so the seek bar does not
+            // jump backward to the incoming track while the current song is still shown.
+            if (IsInCrossfadeTransition)
+                return _gapless.CurrentReader ?? _reader;
+
+            return _gapless.PositionReader ?? _gapless.CurrentReader ?? _reader;
+        }
+    }
 
     public void Configure(bool shuffle, PlaybackRepeatMode repeatMode)
     {
@@ -374,6 +410,14 @@ public sealed class PlaybackService : IDisposable
         Seek(TimeSpan.Zero);
     }
 
+    public void UpdateTransitionState()
+    {
+        if (!IsPlaying || _isPaused)
+            return;
+
+        TryBeginCrossfadeNearEnd();
+    }
+
     public void Seek(TimeSpan position)
     {
         var reader = ActiveReader;
@@ -381,11 +425,12 @@ public sealed class PlaybackService : IDisposable
             return;
 
         var max = Duration.TotalSeconds;
-        var target = TimeSpan.FromSeconds(Math.Clamp(position.TotalSeconds, 0, max));
+        var relative = TimeSpan.FromSeconds(Math.Clamp(position.TotalSeconds, 0, max));
+        var target = relative;
         if (CurrentTrack?.CueStartMs is int startMs)
             target += TimeSpan.FromMilliseconds(startMs);
         reader.CurrentTime = target;
-        PositionChanged?.Invoke(this, Position);
+        PositionChanged?.Invoke(this, relative);
     }
 
     public bool TryAdvanceAtCueEnd()
@@ -455,30 +500,49 @@ public sealed class PlaybackService : IDisposable
         if (track is null || !File.Exists(track.AudioFilePath))
             return;
 
-        var settings = App.Settings;
-        settings.DefaultVolume = _volume;
-        var built = PlaybackPipeline.Build(track, settings);
-        _reader = built.Reader;
-        _sampleProvider = built.Provider;
-        _volumeProvider = built.Volume;
-        _replayGainLinear = built.ReplayGainLinear;
-        _gapless = built.Gapless;
-        _crossfade = built.Crossfade;
-
-        if (track.CueStartMs is int cueStart)
-            _reader.CurrentTime = TimeSpan.FromMilliseconds(cueStart);
-        _cueEndMs = track.CueEndMs;
-
-        PreloadNextTrack();
-
-        _output = AudioOutputFactory.Create(settings.OutputBackend, settings.OutputDeviceId);
-        _output.PlaybackStopped += Output_OnPlaybackStopped;
-        _output.Init(_sampleProvider);
-        if (play)
+        try
         {
-            _output.Play();
-            _isPaused = false;
-            MaybeRecordPlay();
+            var settings = App.Settings;
+            settings.DefaultVolume = _volume;
+            var built = PlaybackPipeline.Build(track, settings);
+            _reader = built.Reader;
+            _sampleProvider = built.Provider;
+            _volumeProvider = built.Volume;
+            _speedProvider = built.Speed;
+            _replayGainLinear = built.ReplayGainLinear;
+            _gapless = built.Gapless;
+            _crossfade = built.Crossfade;
+            if (_gapless is not null)
+                _gapless.TrackAdvanced += Gapless_OnTrackAdvanced;
+            if (_crossfade is not null)
+            {
+                _crossfade.ConfigureTransition(
+                    GetRemainingForCrossfade,
+                    AcquireCrossfadeNextReader,
+                    ReserveCrossfadeIncoming);
+                _crossfade.CrossfadeStarted += Crossfade_OnStarted;
+                _crossfade.CrossfadeCompleted += Crossfade_OnCompleted;
+            }
+
+            if (track.CueStartMs is int cueStart)
+                _reader.CurrentTime = TimeSpan.FromMilliseconds(cueStart);
+            _cueEndMs = track.CueEndMs;
+
+            PreloadNextTrack();
+
+            _output = AudioOutputFactory.Create(settings.OutputBackend, settings.OutputDeviceId);
+            _output.PlaybackStopped += Output_OnPlaybackStopped;
+            _output.Init(_sampleProvider);
+            if (play)
+            {
+                _output.Play();
+                _isPaused = false;
+                MaybeRecordPlay();
+            }
+        }
+        catch (Exception)
+        {
+            StopInternal();
         }
 
         TrackChanged?.Invoke(this, EventArgs.Empty);
@@ -487,6 +551,9 @@ public sealed class PlaybackService : IDisposable
 
     private void PreloadNextTrack()
     {
+        _crossfadeNextReader?.Dispose();
+        _crossfadeNextReader = null;
+
         if (_queueIndex < 0 || _queueIndex >= _queue.Count - 1)
             return;
 
@@ -496,18 +563,169 @@ public sealed class PlaybackService : IDisposable
 
         try
         {
-            var nextReader = new AudioFileReader(nextTrack.AudioFilePath);
-            if (nextTrack.CueStartMs is int nextCueStart)
-                nextReader.CurrentTime = TimeSpan.FromMilliseconds(nextCueStart);
-            if (_gapless is not null)
-                _gapless.PreloadNext(nextReader);
-            else if (_crossfade is not null && App.Settings.CrossfadeEnabled)
-                _crossfade.BeginCrossfade(nextReader);
+            if (_gapless is not null && !App.Settings.CrossfadeEnabled)
+            {
+                var gaplessReader = CreateReaderForTrack(nextTrack);
+                _gapless.PreloadNext(gaplessReader);
+            }
+
+            if (_crossfade is not null && App.Settings.CrossfadeEnabled)
+            {
+                // Separate reader so gapless and crossfade can overlap without sharing file position.
+                _crossfadeNextReader = CreateReaderForTrack(nextTrack);
+            }
         }
         catch
         {
             /* ignore preload failures */
         }
+    }
+
+    private static AudioFileReader CreateReaderForTrack(LibraryTrack track)
+    {
+        var reader = new AudioFileReader(track.AudioFilePath);
+        if (track.CueStartMs is int nextCueStart)
+            reader.CurrentTime = TimeSpan.FromMilliseconds(nextCueStart);
+        return reader;
+    }
+
+    private TimeSpan GetRemainingForCrossfade()
+    {
+        var duration = Duration;
+        if (duration <= TimeSpan.Zero)
+            return TimeSpan.Zero;
+
+        // Always measure from the outgoing decode stream during overlap (before queue handoff).
+        var reader = _gapless?.CurrentReader ?? _reader;
+        if (reader is null)
+            return TimeSpan.Zero;
+
+        TimeSpan position;
+        if (CurrentTrack?.CueStartMs is int start)
+            position = reader.CurrentTime - TimeSpan.FromMilliseconds(start);
+        else
+            position = reader.CurrentTime;
+
+        if (position < TimeSpan.Zero)
+            position = TimeSpan.Zero;
+
+        var remaining = duration - position;
+        return remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining;
+    }
+
+    private AudioFileReader? AcquireCrossfadeNextReader()
+    {
+        if (_crossfadeNextReader is null)
+            return null;
+
+        var reader = _crossfadeNextReader;
+        _crossfadeNextReader = null;
+        return reader;
+    }
+
+    private void TryBeginCrossfadeNearEnd()
+    {
+        if (_crossfade is null || _crossfadeNextReader is null || _crossfade.IsFading || _crossfade.HasPendingHandoff)
+            return;
+        if (!App.Settings.CrossfadeEnabled)
+            return;
+
+        var remaining = GetRemainingForCrossfade();
+        var crossfadeWindow = TimeSpan.FromSeconds(App.Settings.CrossfadeSeconds);
+        if (remaining > crossfadeWindow || remaining <= TimeSpan.Zero)
+            return;
+
+        var next = AcquireCrossfadeNextReader();
+        if (next is null)
+            return;
+
+        _crossfade.BeginCrossfade(next);
+    }
+
+    private void ReserveCrossfadeIncoming(AudioFileReader reader, ISampleProvider samples) =>
+        _gapless?.ReserveIncoming(reader, samples);
+
+    private void Crossfade_OnStarted(object? sender, EventArgs e)
+    {
+        _crossfadeTransitionActive = true;
+        RampReplayGainToNextTrack();
+    }
+
+    private void RampReplayGainToNextTrack()
+    {
+        if (_volumeProvider is null || _queueIndex < 0 || _queueIndex >= _queue.Count - 1)
+            return;
+
+        var nextTrack = _queue[_queueIndex + 1];
+        var gainDb = PlaybackPipeline.ResolveReplayGainDb(nextTrack, App.Settings.ReplayGainMode);
+        _replayGainLinear = (float)Math.Pow(10, gainDb / 20.0);
+
+        var remaining = GetRemainingForCrossfade();
+        var fadeSeconds = Math.Min(App.Settings.CrossfadeSeconds, Math.Max(remaining.TotalSeconds, 0.1));
+        var sampleRate = _reader?.WaveFormat.SampleRate ?? 44100;
+        var rampFrames = Math.Max(1, (int)(fadeSeconds * sampleRate));
+        _volumeProvider.RampTo(_replayGainLinear * (float)_volume, rampFrames);
+    }
+
+    private void Gapless_OnTrackAdvanced(object? sender, EventArgs e) => AdvanceGaplessTrack();
+
+    private void Crossfade_OnCompleted(object? sender, CrossfadeHandoffEventArgs e)
+    {
+        if (_gapless is not null)
+            _gapless.CommitIncoming();
+        else
+            _reader?.Dispose();
+
+        _reader = e.Reader;
+        AdvanceQueueAfterCrossfade();
+        _cueEndMs = CurrentTrack?.CueEndMs;
+        _crossfadeTransitionActive = false;
+        _speedProvider?.ResetInterpolation();
+
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                PreloadNextTrack();
+                TrackChanged?.Invoke(this, EventArgs.Empty);
+                MaybeRecordPlay();
+                RaiseState();
+            }
+            catch
+            {
+                /* ignore background handoff bookkeeping */
+            }
+        });
+    }
+
+    private void AdvanceQueueAfterCrossfade()
+    {
+        if (_queueIndex < _queue.Count - 1)
+            _queueIndex++;
+        else if (_repeatMode == PlaybackRepeatMode.All && _queue.Count > 1)
+            _queueIndex = 0;
+    }
+
+    private void AdvanceGaplessTrack()
+    {
+        if (_gapless?.CurrentReader is null || _queueIndex < 0 || _queue.Count == 0)
+            return;
+
+        if (_queueIndex < _queue.Count - 1)
+            _queueIndex++;
+        else if (_repeatMode == PlaybackRepeatMode.All && _queue.Count > 1)
+            _queueIndex = 0;
+        else
+            return;
+
+        _reader = _gapless.CurrentReader;
+        _cueEndMs = CurrentTrack?.CueEndMs;
+        _speedProvider?.ResetInterpolation();
+
+        PreloadNextTrack();
+        TrackChanged?.Invoke(this, EventArgs.Empty);
+        MaybeRecordPlay();
+        RaiseState();
     }
 
     private void MaybeRecordPlay()
@@ -526,6 +744,12 @@ public sealed class PlaybackService : IDisposable
     {
         if (_isPaused || _reader is null)
             return;
+
+        if (ShouldResumeAfterSpuriousStop())
+        {
+            try { _output?.Play(); } catch { /* ignore */ }
+            return;
+        }
 
         if (_repeatMode == PlaybackRepeatMode.One)
         {
@@ -557,6 +781,29 @@ public sealed class PlaybackService : IDisposable
 
         StopInternal();
         RaiseState();
+    }
+
+    /// <summary>
+    /// Wasapi can fire PlaybackStopped when the outgoing stream hits EOF during crossfade
+    /// even though the incoming track is still playing — resume instead of advancing the queue.
+    /// </summary>
+    private bool ShouldResumeAfterSpuriousStop()
+    {
+        if (_crossfadeTransitionActive)
+            return true;
+
+        if (_crossfade is { IsFading: true } or { HasPendingHandoff: true })
+            return true;
+
+        var reader = ActiveReader;
+        if (reader is null)
+            return false;
+
+        var total = reader.TotalTime;
+        if (total <= TimeSpan.FromMilliseconds(500))
+            return false;
+
+        return reader.CurrentTime + TimeSpan.FromMilliseconds(250) < total;
     }
 
     private void RebuildPlaybackOrder(LibraryTrack? preserveTrack, int preferredIndex)
@@ -656,15 +903,37 @@ public sealed class PlaybackService : IDisposable
         }
 
         _crossfade?.Clear();
+        if (_crossfade is not null)
+        {
+            _crossfade.CrossfadeStarted -= Crossfade_OnStarted;
+            _crossfade.CrossfadeCompleted -= Crossfade_OnCompleted;
+        }
         _gapless?.Clear();
+        if (_gapless is not null)
+            _gapless.TrackAdvanced -= Gapless_OnTrackAdvanced;
+        _crossfadeNextReader?.Dispose();
+        _crossfadeNextReader = null;
+        _crossfadeTransitionActive = false;
         _reader?.Dispose();
         _reader = null;
         _sampleProvider = null;
         _volumeProvider = null;
+        _speedProvider = null;
         _replayGainLinear = 1f;
         _gapless = null;
         _crossfade = null;
         _isPaused = false;
+    }
+
+    private void ApplyReplayGainForCurrentTrack()
+    {
+        var track = CurrentTrack;
+        if (track is null)
+            return;
+
+        var gainDb = PlaybackPipeline.ResolveReplayGainDb(track, App.Settings.ReplayGainMode);
+        _replayGainLinear = (float)Math.Pow(10, gainDb / 20.0);
+        ApplyLiveVolume();
     }
 
     private void ApplyLiveVolume()

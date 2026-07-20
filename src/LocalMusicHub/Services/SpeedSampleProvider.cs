@@ -16,6 +16,8 @@ public sealed class SpeedSampleProvider : ISampleProvider
 
     public WaveFormat WaveFormat => _source.WaveFormat;
 
+    public void ResetInterpolation() => _sourceIndex = 0;
+
     public int Read(float[] buffer, int offset, int count)
     {
         var speed = Math.Clamp(Speed, 0.5f, 2f);

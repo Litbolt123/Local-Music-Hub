@@ -6,7 +6,7 @@
 2. **Folder watch** — `FileSystemWatcher` on the music output tree; new audio files are indexed after a short debounce.
 3. **Extension API** — Hub calls `GET /health`, `POST /check`, `POST /download` on `http://127.0.0.1:{port}` with `X-Extension-Token`.
 4. **Download UI** — Sidebar URL box, **Download**, and **Paste & download** (single video, `contentKind: music`, MP3).
-5. **Completion** — Primary: folder watch auto-import. Backup: poll `history.json` every 2s for up to 15 minutes.
+5. **Completion** — Primary: folder watch auto-import. Backup: `history.json` poll every 2s for up to 15 minutes. **Push ingest (v0.13+):** Downloader POSTs to Hub `http://127.0.0.1:47385/library/ingest` when a music job completes (instant import when Hub is running).
 6. **Status** — Sidebar shows linked/offline/queued/waiting/added/error states.
 
 ### Prerequisites
@@ -28,13 +28,15 @@ YouTube Downloader **v1.9.2+** reports Music Hub link status in Settings and `/h
 
 ## Planned (future)
 
-### A. Downloader → Hub (push)
+### A. Downloader → Hub (push) — **shipped in Hub 0.13.0 / Downloader 2.1.1**
 
 | Method | Description |
 |--------|-------------|
 | Folder watch | Implemented |
 | `history.json` poll | Implemented |
 | Push API | Downloader POSTs to `http://127.0.0.1:{hubPort}/library/ingest` when a music job completes |
+
+Hub listens on port **47385** by default (`LibraryIngestPort` / `LibraryIngestToken` in Hub `settings.json`). Token is sent as `X-Hub-Token` header.
 
 ### B. Optional shared types
 

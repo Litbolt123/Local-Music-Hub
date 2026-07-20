@@ -23,7 +23,10 @@ public static class CoverArtHelper
 
         try
         {
-            var source = LoadBitmap(data);
+            var decodeMax = decodePixelWidth > 0
+                ? (int)Math.Ceiling(decodePixelWidth * Math.Max(zoom, 1.0) * 1.5)
+                : 640;
+            var source = LoadBitmap(data, decodeMax);
             if (source is null)
                 return null;
 
@@ -40,6 +43,25 @@ public static class CoverArtHelper
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>Downscale/normalize online cover art so WPF decode and tag embed stay stable.</summary>
+    public static byte[]? NormalizeDownloadedCover(byte[]? data, int outputSize = 1600, int quality = 92)
+    {
+        if (data is not { Length: > 0 })
+            return null;
+
+        return EncodeJpegSquare(data, outputSize: outputSize, quality: quality)
+               ?? EncodeJpegSquare(data, outputSize: 1000, quality: 88);
+    }
+
+    public static void WarmAlbumThumbnails(IEnumerable<Models.LibraryAlbum> albums, int width = 150)
+    {
+        foreach (var album in albums)
+        {
+            if (album.CoverArt is { Length: > 0 })
+                album.CoverThumbnail = ToBitmap(album.CoverArt, width, centerCropSquare: true);
         }
     }
 
@@ -136,30 +158,65 @@ public static class CoverArtHelper
 
     public static void WriteCoverToFile(string audioPath, byte[] jpegBytes)
     {
-        using var file = TagLib.File.Create(audioPath);
-        var picture = new TagLib.Picture(new TagLib.ByteVector(jpegBytes))
+        jpegBytes = NormalizeDownloadedCover(jpegBytes, outputSize: 1200, quality: 90) ?? jpegBytes;
+        WriteWithFileRetry(audioPath, () =>
         {
-            Type = TagLib.PictureType.FrontCover,
-            MimeType = "image/jpeg",
-            Description = "Cover",
-        };
-        file.Tag.Pictures = [picture];
-        file.Save();
+            using var file = TagLib.File.Create(audioPath);
+            var picture = new TagLib.Picture(new TagLib.ByteVector(jpegBytes))
+            {
+                Type = TagLib.PictureType.FrontCover,
+                MimeType = "image/jpeg",
+                Description = "Cover",
+            };
+            file.Tag.Pictures = [picture];
+            file.Save();
+        });
     }
 
     public static void ClearCoverFromFile(string audioPath)
     {
-        using var file = TagLib.File.Create(audioPath);
-        file.Tag.Pictures = [];
-        file.Save();
+        WriteWithFileRetry(audioPath, () =>
+        {
+            using var file = TagLib.File.Create(audioPath);
+            file.Tag.Pictures = [];
+            file.Save();
+        });
     }
 
-    private static BitmapSource? LoadBitmap(byte[] data)
+    private static void WriteWithFileRetry(string audioPath, Action write, int attempts = 5)
+    {
+        Exception? last = null;
+        for (var attempt = 0; attempt < attempts; attempt++)
+        {
+            try
+            {
+                if (!AudioFileAccess.WaitUntilReadableAsync(audioPath, TimeSpan.FromSeconds(12))
+                        .GetAwaiter().GetResult())
+                {
+                    throw new IOException($"Audio file is not ready: {audioPath}");
+                }
+
+                write();
+                return;
+            }
+            catch (Exception ex) when (AudioFileAccess.IsSharingViolation(ex) && attempt < attempts - 1)
+            {
+                last = ex;
+                Thread.Sleep(250 * (attempt + 1));
+            }
+        }
+
+        throw last ?? new IOException($"Could not update cover art: {audioPath}");
+    }
+
+    private static BitmapSource? LoadBitmap(byte[] data, int decodePixelWidth = 0)
     {
         using var ms = new MemoryStream(data);
         var image = new BitmapImage();
         image.BeginInit();
         image.CacheOption = BitmapCacheOption.OnLoad;
+        if (decodePixelWidth > 0)
+            image.DecodePixelWidth = decodePixelWidth;
         image.StreamSource = ms;
         image.EndInit();
         image.Freeze();

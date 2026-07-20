@@ -2,9 +2,12 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using LocalMusicHub.Models;
 using LocalMusicHub.Services;
+using MediaColor = System.Windows.Media.Color;
 using MessageBox = System.Windows.MessageBox;
+using SolidColorBrush = System.Windows.Media.SolidColorBrush;
 
 namespace LocalMusicHub;
 
@@ -12,32 +15,68 @@ public partial class SettingsWindow
 {
     public bool RescanRequested { get; private set; }
 
-    private readonly LyricsPrefetchService? _lyricsPrefetch;
+    private LyricsPrefetchService? _lyricsPrefetch;
+    private readonly Func<LyricsPrefetchService?>? _getLyricsPrefetch;
     private readonly Func<IReadOnlyList<LibraryTrack>>? _getAllTracks;
+    private readonly Func<LyricsPrefetchService>? _ensureLyricsPrefetch;
     private List<float> _draftCustomEqBands = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     private UpdateCheckResult? _lastCheck;
+    private bool _suppressAppearanceEvents;
 
     public SettingsWindow(
-        LyricsPrefetchService? lyricsPrefetch = null,
-        Func<IReadOnlyList<LibraryTrack>>? getAllTracks = null)
+        Func<LyricsPrefetchService?>? getLyricsPrefetch = null,
+        Func<IReadOnlyList<LibraryTrack>>? getAllTracks = null,
+        Func<LyricsPrefetchService>? ensureLyricsPrefetch = null)
     {
-        _lyricsPrefetch = lyricsPrefetch;
+        _getLyricsPrefetch = getLyricsPrefetch;
         _getAllTracks = getAllTracks;
+        _ensureLyricsPrefetch = ensureLyricsPrefetch;
         HubTheme.Ensure(this);
         InitializeComponent();
+        PopulateAccentThemes();
         DefaultVolumeSlider.ValueChanged += (_, _) => UpdateVolumeLabel();
         PlaybackSpeedSlider.ValueChanged += (_, _) => UpdatePlaybackSpeedLabel();
         LoadFromSettings();
-        if (_lyricsPrefetch is not null)
+        AttachLyricsPrefetch(_getLyricsPrefetch?.Invoke());
+        Closed += (_, _) =>
         {
-            _lyricsPrefetch.ProgressChanged += LyricsPrefetch_OnProgressChanged;
-            Closed += (_, _) => _lyricsPrefetch.ProgressChanged -= LyricsPrefetch_OnProgressChanged;
-        }
+            if (DialogResult != true)
+                HubTheme.ApplyFromSettings();
+        };
     }
 
-    private void DownloadAllLyrics_OnClick(object sender, RoutedEventArgs e)
+    private void AttachLyricsPrefetch(LyricsPrefetchService? prefetch)
     {
-        if (_lyricsPrefetch is null || _getAllTracks is null)
+        if (prefetch is null || _lyricsPrefetch is not null)
+            return;
+
+        _lyricsPrefetch = prefetch;
+        prefetch.ProgressChanged += LyricsPrefetch_OnProgressChanged;
+        Closed += (_, _) => prefetch.ProgressChanged -= LyricsPrefetch_OnProgressChanged;
+    }
+
+    private async Task<LyricsPrefetchService?> ResolveLyricsPrefetchAsync()
+    {
+        var prefetch = _getLyricsPrefetch?.Invoke();
+        if (prefetch is not null)
+        {
+            AttachLyricsPrefetch(prefetch);
+            return prefetch;
+        }
+
+        if (_ensureLyricsPrefetch is null)
+            return null;
+
+        LyricsDownloadStatusText.Text = "Starting lyrics service…";
+        prefetch = await Task.Run(_ensureLyricsPrefetch).ConfigureAwait(true);
+        AttachLyricsPrefetch(prefetch);
+        return prefetch;
+    }
+
+    private async void DownloadAllLyrics_OnClick(object sender, RoutedEventArgs e)
+    {
+        var prefetch = await ResolveLyricsPrefetchAsync().ConfigureAwait(true);
+        if (prefetch is null || _getAllTracks is null)
         {
             LyricsDownloadStatusText.Text = "Lyrics download is unavailable in this window.";
             return;
@@ -60,7 +99,7 @@ public partial class SettingsWindow
                 skippedNotFound++;
         }
 
-        var queued = _lyricsPrefetch.QueueDownload(tracks, LyricsQueueMode.MissingOnly);
+        var queued = prefetch.QueueDownload(tracks, LyricsQueueMode.MissingOnly);
         LyricsDownloadStatusText.Text = queued == 0
             ? BuildLyricsIdleStatus(alreadyHad, skippedNotFound)
             : $"Queued {queued} track(s) — downloading in the background from LRCLIB…";
@@ -68,9 +107,10 @@ public partial class SettingsWindow
             DownloadAllLyricsButton.IsEnabled = queued > 0;
     }
 
-    private void RetryFailedLyrics_OnClick(object sender, RoutedEventArgs e)
+    private async void RetryFailedLyrics_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_lyricsPrefetch is null || _getAllTracks is null)
+        var prefetch = await ResolveLyricsPrefetchAsync().ConfigureAwait(true);
+        if (prefetch is null || _getAllTracks is null)
         {
             LyricsDownloadStatusText.Text = "Lyrics download is unavailable in this window.";
             return;
@@ -84,7 +124,7 @@ public partial class SettingsWindow
             return;
         }
 
-        var queued = _lyricsPrefetch.QueueDownload(tracks, LyricsQueueMode.RetryFailed);
+        var queued = prefetch.QueueDownload(tracks, LyricsQueueMode.RetryFailed);
         LyricsDownloadStatusText.Text = queued == 0
             ? "No failed lyrics lookups to retry."
             : $"Retrying {queued} previously not-found track(s)…";
@@ -105,7 +145,7 @@ public partial class SettingsWindow
 
     private void LyricsPrefetch_OnProgressChanged(object? sender, LyricsPrefetchProgress e)
     {
-        Dispatcher.Invoke(() =>
+        Dispatcher.BeginInvoke(() =>
         {
             if (e.Total <= 0 && e.AlreadyHad > 0 && e.IsIdle)
             {
@@ -141,8 +181,21 @@ public partial class SettingsWindow
         var s = App.Settings;
         var status = YouTubeDownloaderBridge.GetLinkStatus();
 
-        DarkThemeBox.IsChecked = s.UseDarkTheme;
-        SelectComboByTag(AccentThemeBox, HubTheme.NormalizeAccent(s.AccentTheme));
+        _suppressAppearanceEvents = true;
+        try
+        {
+            DarkThemeBox.IsChecked = s.UseDarkTheme;
+            SelectComboByTag(AccentThemeBox, HubTheme.NormalizeAccent(s.AccentTheme));
+            var customHex = NormalizeCustomHex(s.CustomAccentColor);
+            CustomAccentHexBox.Text = customHex;
+            UpdateCustomAccentSwatch(customHex);
+            UpdateCustomAccentVisibility();
+        }
+        finally
+        {
+            _suppressAppearanceEvents = false;
+        }
+
         WatchFoldersBox.IsChecked = s.WatchLibraryFolders;
         RescanOnSaveBox.IsChecked = s.RescanLibraryOnSave;
         IntegrateDownloaderBox.IsChecked = s.IntegrateYouTubeDownloader;
@@ -378,6 +431,7 @@ public partial class SettingsWindow
         {
             UseDarkTheme = DarkThemeBox.IsChecked == true,
             AccentTheme = HubTheme.NormalizeAccent(SelectedTag(AccentThemeBox)),
+            CustomAccentColor = NormalizeCustomHex(CustomAccentHexBox.Text),
             WatchLibraryFolders = WatchFoldersBox.IsChecked == true,
             RescanLibraryOnSave = RescanOnSaveBox.IsChecked == true,
             IntegrateYouTubeDownloader = IntegrateDownloaderBox.IsChecked == true,
@@ -547,5 +601,93 @@ public partial class SettingsWindow
     {
         DialogResult = false;
         Close();
+    }
+
+    private void PopulateAccentThemes()
+    {
+        AccentThemeBox.Items.Clear();
+        foreach (var preset in HubTheme.AccentPresets)
+        {
+            AccentThemeBox.Items.Add(new ComboBoxItem
+            {
+                Content = preset.DisplayName,
+                Tag = preset.Id,
+            });
+        }
+    }
+
+    private void Appearance_OnChanged(object sender, RoutedEventArgs e)
+    {
+        if (_suppressAppearanceEvents)
+            return;
+
+        UpdateCustomAccentVisibility();
+        PreviewAppearance();
+    }
+
+    private void PreviewAppearance()
+    {
+        var accent = HubTheme.NormalizeAccent(SelectedTag(AccentThemeBox));
+        var customHex = accent == HubTheme.AccentCustom
+            ? NormalizeCustomHex(CustomAccentHexBox.Text)
+            : App.Settings.CustomAccentColor;
+        HubTheme.Apply(DarkThemeBox.IsChecked == true, accent, customHex);
+    }
+
+    private void UpdateCustomAccentVisibility()
+    {
+        var isCustom = string.Equals(
+            SelectedTag(AccentThemeBox),
+            HubTheme.AccentCustom,
+            StringComparison.OrdinalIgnoreCase);
+        CustomAccentPanel.Visibility = isCustom ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void UpdateCustomAccentSwatch(string hex)
+    {
+        var color = HubTheme.TryParseColorHex(hex);
+        CustomAccentSwatch.Background = color.HasValue
+            ? new SolidColorBrush(color.Value)
+            : System.Windows.Media.Brushes.Transparent;
+    }
+
+    private void PickCustomAccent_OnClick(object sender, RoutedEventArgs e)
+    {
+        using var dlg = new System.Windows.Forms.ColorDialog { FullOpen = true };
+        var current = HubTheme.TryParseColorHex(CustomAccentHexBox.Text);
+        if (current.HasValue)
+        {
+            dlg.Color = System.Drawing.Color.FromArgb(
+                current.Value.R,
+                current.Value.G,
+                current.Value.B);
+        }
+
+        if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+            return;
+
+        var picked = MediaColor.FromRgb(dlg.Color.R, dlg.Color.G, dlg.Color.B);
+        var hex = HubTheme.FormatColorHex(picked);
+        CustomAccentHexBox.Text = hex;
+        UpdateCustomAccentSwatch(hex);
+        SelectComboByTag(AccentThemeBox, HubTheme.AccentCustom);
+        PreviewAppearance();
+    }
+
+    private void CustomAccentHexBox_OnLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_suppressAppearanceEvents)
+            return;
+
+        var hex = NormalizeCustomHex(CustomAccentHexBox.Text);
+        CustomAccentHexBox.Text = hex;
+        UpdateCustomAccentSwatch(hex);
+        PreviewAppearance();
+    }
+
+    private static string NormalizeCustomHex(string? hex)
+    {
+        var parsed = HubTheme.TryParseColorHex(hex);
+        return parsed.HasValue ? HubTheme.FormatColorHex(parsed.Value) : "#7C4DFF";
     }
 }

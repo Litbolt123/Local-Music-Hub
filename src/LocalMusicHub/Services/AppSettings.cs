@@ -3,8 +3,10 @@ namespace LocalMusicHub.Services;
 public sealed class AppSettings
 {
     public bool UseDarkTheme { get; set; } = true;
-    /// <summary>Accent palette: "purple" (classic) or "spotify" (green).</summary>
+    /// <summary>Accent palette: preset id or "custom".</summary>
     public string AccentTheme { get; set; } = "purple";
+    /// <summary>When AccentTheme is "custom", hex color e.g. #7C4DFF.</summary>
+    public string? CustomAccentColor { get; set; }
     public List<string> LibraryFolders { get; set; } = [];
     public bool WatchLibraryFolders { get; set; } = true;
     public bool IntegrateYouTubeDownloader { get; set; } = true;
@@ -13,6 +15,10 @@ public sealed class AppSettings
     public string? YouTubeDownloaderMusicFolder { get; set; }
     public int YouTubeDownloaderPort { get; set; } = 47384;
     public string? YouTubeDownloaderToken { get; set; }
+    /// <summary>Local HTTP ingest API for YouTube Downloader push notifications.</summary>
+    public bool LibraryIngestEnabled { get; set; } = true;
+    public int LibraryIngestPort { get; set; } = LibraryIngestHost.DefaultPort;
+    public string? LibraryIngestToken { get; set; }
     public double DefaultVolume { get; set; } = 0.85;
     /// <summary>Playback speed multiplier (0.5–2.0). Pitch shifts with speed.</summary>
     public double PlaybackSpeed { get; set; } = 1.0;
@@ -55,4 +61,6 @@ public sealed class AppSettings
     public bool NotifyTrayOnUpdate { get; set; } = true;
     public string? DismissedUpdateVersion { get; set; }
     public string? LastUpdateCheckUtc { get; set; }
+    /// <summary>When true, writes startup phase timings to startup-timing.log in the app data folder.</summary>
+    public bool LogStartupTiming { get; set; } = true;
 }

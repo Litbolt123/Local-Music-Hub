@@ -10,37 +10,45 @@ public static class AudioTagWriter
         if (track.FilePath.Contains(CuePathHelper.CueSuffix, StringComparison.Ordinal))
             throw new InvalidOperationException("Cannot write audio tags for a CUE virtual track.");
 
-        using var file = TagFile.Create(track.AudioFilePath);
-        var tag = file.Tag;
+        var coverBytes = track.CoverArt is { Length: > 0 }
+            ? CoverArtHelper.NormalizeDownloadedCover(track.CoverArt, outputSize: 1200, quality: 90) ?? track.CoverArt
+            : null;
 
-        tag.Title = track.Title;
-        tag.Performers = string.IsNullOrWhiteSpace(track.Artist)
-            ? []
-            : track.Artist.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        tag.AlbumArtists = string.IsNullOrWhiteSpace(track.AlbumArtist)
-            ? []
-            : [track.AlbumArtist.Trim()];
-        tag.Album = track.Album;
-        tag.Track = track.TrackNumber is > 0 ? (uint)track.TrackNumber.Value : 0;
-        tag.Year = track.Year is > 0 ? (uint)track.Year.Value : 0;
-        tag.Genres = string.IsNullOrWhiteSpace(track.Genre)
-            ? []
-            : GenreNormalizer.SplitGenres(track.Genre).ToArray();
-
-        if (track.CoverArt is { Length: > 0 })
+        WriteWithRetry(track.AudioFilePath, file =>
         {
-            tag.Pictures =
-            [
-                new TagLib.Picture(new TagLib.ByteVector(track.CoverArt))
-                {
-                    Type = TagLib.PictureType.FrontCover,
-                    MimeType = GuessMime(track.CoverArt),
-                    Description = "Cover",
-                },
-            ];
-        }
+            var tag = file.Tag;
 
-        file.Save();
+            tag.Title = track.Title;
+            tag.Performers = string.IsNullOrWhiteSpace(track.Artist)
+                ? []
+                : track.Artist.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            tag.AlbumArtists = string.IsNullOrWhiteSpace(track.AlbumArtist)
+                ? []
+                : [track.AlbumArtist.Trim()];
+            tag.Album = track.Album;
+            tag.Track = track.TrackNumber is > 0 ? (uint)track.TrackNumber.Value : 0;
+            tag.Year = track.Year is > 0 ? (uint)track.Year.Value : 0;
+            tag.Genres = string.IsNullOrWhiteSpace(track.Genre)
+                ? []
+                : GenreNormalizer.SplitGenres(track.Genre).ToArray();
+            tag.Comment = track.Comment?.Trim() ?? "";
+            WriteDateReleased(file, track.DateReleased);
+
+            if (coverBytes is { Length: > 0 })
+            {
+                tag.Pictures =
+                [
+                    new TagLib.Picture(new TagLib.ByteVector(coverBytes))
+                    {
+                        Type = TagLib.PictureType.FrontCover,
+                        MimeType = GuessMime(coverBytes),
+                        Description = "Cover",
+                    },
+                ];
+            }
+
+            file.Save();
+        });
     }
 
     public static void WriteCoverOnly(string filePath, byte[] coverBytes)
@@ -91,6 +99,33 @@ public static class AudioTagWriter
         }
     }
 
+    private static void WriteWithRetry(string path, Action<TagFile> write, int attempts = 5)
+    {
+        Exception? last = null;
+        for (var attempt = 0; attempt < attempts; attempt++)
+        {
+            try
+            {
+                if (!AudioFileAccess.WaitUntilReadableAsync(path, TimeSpan.FromSeconds(12))
+                        .GetAwaiter().GetResult())
+                {
+                    throw new IOException($"Audio file is not ready: {path}");
+                }
+
+                using var file = TagFile.Create(path);
+                write(file);
+                return;
+            }
+            catch (Exception ex) when (AudioFileAccess.IsSharingViolation(ex) && attempt < attempts - 1)
+            {
+                last = ex;
+                Thread.Sleep(250 * (attempt + 1));
+            }
+        }
+
+        throw last ?? new IOException($"Could not write tags: {path}");
+    }
+
     private static string StripLrc(string lrc)
     {
         var lines = lrc.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
@@ -107,5 +142,30 @@ public static class AudioTagWriter
         if (data.Length >= 8 && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47)
             return "image/png";
         return "image/jpeg";
+    }
+
+    private static void WriteDateReleased(TagFile file, string? dateReleased)
+    {
+        var value = dateReleased?.Trim() ?? "";
+        if (file.GetTag(TagLib.TagTypes.Xiph, true) is TagLib.Ogg.XiphComment xiph)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                xiph.RemoveField("RELEASEDATE");
+            }
+            else
+            {
+                xiph.SetField("RELEASEDATE", value);
+                if (value.Length >= 4 && int.TryParse(value.AsSpan(0, 4), out var year))
+                    xiph.SetField("DATE", year.ToString());
+            }
+        }
+
+        if (file.GetTag(TagLib.TagTypes.Id3v2, true) is TagLib.Id3v2.Tag id3)
+        {
+            id3.RemoveFrames("TDRL");
+            if (!string.IsNullOrWhiteSpace(value))
+                id3.SetTextFrame("TDRL", value);
+        }
     }
 }

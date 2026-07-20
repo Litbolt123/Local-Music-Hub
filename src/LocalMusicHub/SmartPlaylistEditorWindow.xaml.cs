@@ -204,6 +204,18 @@ public partial class SmartPlaylistEditorWindow
         return field;
     }
 
+    private WpfComboBox CreateRuleComboBox(bool editable = false)
+    {
+        var box = new WpfComboBox
+        {
+            Margin = new Thickness(0, 0, 6, 0),
+            Style = (Style)FindResource(editable ? "HubEditableComboBox" : "HubComboBox"),
+        };
+        if (editable)
+            box.IsEditable = true;
+        return box;
+    }
+
     private void AddRuleRow(SmartPlaylistRule? seed = null)
     {
         var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
@@ -212,11 +224,11 @@ public partial class SmartPlaylistEditorWindow
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
 
-        var fieldBox = new WpfComboBox { Margin = new Thickness(0, 0, 6, 0), MinHeight = 30 };
+        var fieldBox = CreateRuleComboBox();
         foreach (var field in RuleRow.FieldOptions)
             fieldBox.Items.Add(field);
 
-        var opBox = new WpfComboBox { Margin = new Thickness(0, 0, 6, 0), MinHeight = 30 };
+        var opBox = CreateRuleComboBox();
 
         var valueHost = new Grid { Margin = new Thickness(0, 0, 6, 0) };
         var valueBox = new WpfTextBox
@@ -226,15 +238,11 @@ public partial class SmartPlaylistEditorWindow
         };
         valueBox.TextChanged += RuleChanged_OnTextChanged;
 
-        var valueCombo = new WpfComboBox
-        {
-            IsEditable = true,
-            IsTextSearchEnabled = true,
-            StaysOpenOnEdit = true,
-            MinHeight = 30,
-            Visibility = Visibility.Collapsed,
-            ToolTip = "Pick from your library or type to filter",
-        };
+        var valueCombo = CreateRuleComboBox(editable: true);
+        valueCombo.IsTextSearchEnabled = true;
+        valueCombo.StaysOpenOnEdit = true;
+        valueCombo.Visibility = Visibility.Collapsed;
+        valueCombo.ToolTip = "Pick from your library or type to filter";
         valueCombo.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
             new TextChangedEventHandler(RuleChanged_OnTextChanged));
 

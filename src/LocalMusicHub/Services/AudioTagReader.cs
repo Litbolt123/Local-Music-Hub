@@ -18,12 +18,14 @@ public static class AudioTagReader
         var tag = file.Tag;
         var props = file.Properties;
 
-        var artist = FirstNonEmpty(tag.Performers);
+        var artist = TagTextHelper.Clean(FirstNonEmpty(tag.Performers), path);
         // Album artist is album-level metadata only — do not fall back to per-track performers
         // (featured artists on individual tracks would otherwise split one album into many).
-        var albumArtist = FirstNonEmpty(tag.AlbumArtists);
-        var album = tag.Album ?? "";
-        var title = tag.Title ?? Path.GetFileNameWithoutExtension(path);
+        var albumArtist = TagTextHelper.Clean(FirstNonEmpty(tag.AlbumArtists), path);
+        var album = TagTextHelper.Clean(tag.Album ?? "", path);
+        var title = TagTextHelper.Clean(tag.Title ?? Path.GetFileNameWithoutExtension(path), path, titleFromFileName: true);
+        var comment = TagTextHelper.Clean(tag.Comment ?? "", path);
+        var dateReleased = ReadDateReleased(file);
         var cover = tag.Pictures.FirstOrDefault()?.Data.Data;
         if (cover is not { Length: > 0 })
             cover = TryLoadFolderArt(path);
@@ -40,8 +42,10 @@ public static class AudioTagReader
             AlbumArtist = albumArtist,
             TrackNumber = tag.Track > 0 ? (int)tag.Track : null,
             Year = tag.Year > 0 ? (int)tag.Year : null,
+            DateReleased = dateReleased,
             Genre = GenreNormalizer.NormalizeStored(
                 tag.Genres.Length > 0 ? string.Join("; ", tag.Genres) : ""),
+            Comment = comment,
             Duration = props.Duration,
             Bitrate = props.AudioBitrate,
             Format = Path.GetExtension(path).TrimStart('.').ToUpperInvariant(),
@@ -165,5 +169,62 @@ public static class AudioTagReader
         }
 
         return "";
+    }
+
+    private static string ReadDateReleased(TagFile file)
+    {
+        if (file.GetTag(TagLib.TagTypes.Xiph) is TagLib.Ogg.XiphComment xiph)
+        {
+            foreach (var key in new[] { "RELEASEDATE", "DATE", "ORIGINALDATE" })
+            {
+                var value = xiph.GetFirstField(key);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value.Trim();
+            }
+        }
+
+        if (file.GetTag(TagLib.TagTypes.Id3v2) is TagLib.Id3v2.Tag id3)
+        {
+            foreach (var key in new[] { "TDRL", "TDRC", "TYER" })
+            {
+                var text = id3.GetTextAsString(key);
+                if (!string.IsNullOrWhiteSpace(text))
+                    return text.Trim();
+            }
+        }
+
+        return file.Tag.Year > 0 ? file.Tag.Year.ToString() : "";
+    }
+
+    public static string ReadComment(string path)
+    {
+        if (!IsSupported(path) || !File.Exists(path))
+            return "";
+
+        try
+        {
+            using var file = TagFile.Create(path);
+            return TagTextHelper.Clean(file.Tag.Comment ?? "", path);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    public static string ReadDateReleased(string path)
+    {
+        if (!IsSupported(path) || !File.Exists(path))
+            return "";
+
+        try
+        {
+            using var file = TagFile.Create(path);
+            return ReadDateReleased(file);
+        }
+        catch
+        {
+            return "";
+        }
     }
 }

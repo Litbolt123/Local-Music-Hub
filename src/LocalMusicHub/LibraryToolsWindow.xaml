@@ -20,7 +20,7 @@
                        TextWrapping="Wrap"/>
         </StackPanel>
 
-        <UniformGrid Grid.Row="1" Columns="2" Rows="3" Margin="0,0,0,12">
+        <UniformGrid Grid.Row="1" Columns="2" Rows="4" Margin="0,0,0,12">
             <Button Style="{DynamicResource HubToolbarButton}" Margin="0,0,8,8" Padding="14,16"
                     HorizontalContentAlignment="Left" Click="Stats_OnClick">
                 <StackPanel>
@@ -60,7 +60,14 @@
                     HorizontalContentAlignment="Left" Click="ScanLibrary_OnClick">
                 <StackPanel>
                     <TextBlock Text="Scan library" FontWeight="SemiBold"/>
-                    <TextBlock Text="Rescan monitored folders" Style="{DynamicResource HubHintText}" Margin="0,4,0,0"/>
+                    <TextBlock Text="Rescan all monitored folders" Style="{DynamicResource HubHintText}" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Button>
+            <Button Style="{DynamicResource HubToolbarButton}" Margin="0,0,0,8" Padding="14,16"
+                    HorizontalContentAlignment="Left" Click="ScanFolders_OnClick">
+                <StackPanel>
+                    <TextBlock Text="Scan folders…" FontWeight="SemiBold"/>
+                    <TextBlock Text="Pick folders to rescan" Style="{DynamicResource HubHintText}" Margin="0,4,0,0"/>
                 </StackPanel>
             </Button>
         </UniformGrid>

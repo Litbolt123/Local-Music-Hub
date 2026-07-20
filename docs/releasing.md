@@ -5,10 +5,10 @@
 Edit **`Directory.Build.props`** at the repo root:
 
 ```xml
-<Version>0.10.0</Version>
+<Version>0.13.0</Version>
 ```
 
-Tag must be **`v` + Version** (e.g. `v0.10.0`).
+Tag must be **`v` + Version** (e.g. `v0.13.0`).
 
 ## Before you tag
 
@@ -18,8 +18,8 @@ Tag must be **`v` + Version** (e.g. `v0.10.0`).
 4. Tag and push:
 
 ```powershell
-git tag v0.10.0
-git push origin v0.10.0
+git tag v0.11.0
+git push origin v0.11.0
 ```
 
 ## What CI does
@@ -58,6 +58,6 @@ git remote add origin https://github.com/Litbolt123/Local-Music-Hub.git
 git add .
 git commit -m "Initial commit with distribution workflow"
 git push -u origin main
-git tag v0.10.0
-git push origin v0.10.0
+git tag v0.11.0
+git push origin v0.11.0
 ```

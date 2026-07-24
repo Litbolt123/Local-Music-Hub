@@ -74,10 +74,19 @@ jobs:
 
       - name: Compile Inno Setup
         working-directory: installer
-        run: |
-          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
-          & $iscc /DAppVersion=${{ steps.version.outputs.app_version }} .\LocalMusicHub.iss
         shell: pwsh
+        run: |
+          $ver = "${{ steps.version.outputs.app_version }}"
+          & ..\scripts\write-version-inc.ps1 -Version $ver | Out-Null
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=$ver" .\LocalMusicHub.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
+          $expected = Join-Path (Get-Location) "Output\LocalMusicHub-Setup-$ver.exe"
+          if (-not (Test-Path -LiteralPath $expected)) {
+            Get-ChildItem Output -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Output: $($_.Name)" }
+            throw "Expected installer missing: $expected (stale version.inc may have overridden /DAppVersion)"
+          }
+          Write-Host "Installer OK: $expected"
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4

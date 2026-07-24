@@ -1,11 +1,14 @@
 ; Inno Setup script for "Local Music Hub"
 ; Build: scripts\build-installer.ps1  (do not compile from IDE without running that script first)
 ; Version: Directory.Build.props → scripts\write-version-inc.ps1 → version.inc + ISCC /DAppVersion=
+; /DAppVersion=… from the command line must win over a stale version.inc in the repo.
 
 #define AppName        "Local Music Hub"
 #define AppShortName   "LocalMusicHub"
-#ifexist "version.inc"
-  #include "version.inc"
+#ifndef AppVersion
+  #ifexist "version.inc"
+    #include "version.inc"
+  #endif
 #endif
 #ifndef AppVersion
   #define AppVersion "0.1.0"

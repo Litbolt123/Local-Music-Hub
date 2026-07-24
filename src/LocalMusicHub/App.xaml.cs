@@ -18,8 +18,46 @@ public partial class App : Application
     /// <summary>When true, <see cref="PendingImportPath"/> is an album folder.</summary>
     public static bool PendingImportFolder { get; private set; }
 
+    /// <summary>Playlist name from --playlist (Harbor greeting / CLI).</summary>
+    public static string? PendingPlaylistName { get; private set; }
+
+    /// <summary>Volume 0–1 from --volume (Harbor greeting / CLI).</summary>
+    public static double? PendingVolume { get; private set; }
+
+    public static void ClearPendingPlaylistName() => PendingPlaylistName = null;
+
+    public static void ClearPendingVolume() => PendingVolume = null;
+
     public static string VersionDisplay =>
         UpdateCheckService.CurrentAssemblyVersion.ToString(3);
+
+    /// <summary>When true, <see cref="MainWindow"/> must allow close so the process can exit for an installer upgrade.</summary>
+    public bool BypassMainWindowCloseCancel { get; set; }
+
+    /// <summary>Fully quit after launching the downloaded setup (user already confirmed). Not tray-minimize.</summary>
+    public void ExitForInstallerUpgrade()
+    {
+        BypassMainWindowCloseCancel = true;
+
+        // Close modal Settings / other owned windows so Shutdown is not blocked.
+        try
+        {
+            foreach (Window w in Windows.Cast<Window>().ToList())
+            {
+                if (ReferenceEquals(w, MainWindow))
+                    continue;
+                try { w.Close(); } catch { /* ignore */ }
+            }
+        }
+        catch
+        {
+            /* ignore */
+        }
+
+        if (MainWindow is MainWindow mw)
+            mw.RequestForceClose();
+        Shutdown(0);
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -66,6 +104,8 @@ public partial class App : Application
         PendingImportPath = ParseImportPath(e.Args);
         PendingImportFolder = e.Args.Any(a =>
             string.Equals(a, "--import-folder", StringComparison.OrdinalIgnoreCase));
+        PendingPlaylistName = ParsePlaylistName(e.Args);
+        PendingVolume = ParseVolume(e.Args);
         HubTheme.ApplyFromSettings();
         StartupProfiler.Mark("app.theme_applied");
         base.OnStartup(e);
@@ -153,6 +193,45 @@ public partial class App : Application
         }
 
         return null;
+    }
+
+    private static string? ParsePlaylistName(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (string.Equals(args[i], "--playlist", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                return args[i + 1].Trim().Trim('"');
+
+            if (args[i].StartsWith("--playlist=", StringComparison.OrdinalIgnoreCase))
+                return args[i]["--playlist=".Length..].Trim().Trim('"');
+        }
+
+        return null;
+    }
+
+    private static double? ParseVolume(string[] args)
+    {
+        string? raw = null;
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (string.Equals(args[i], "--volume", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                raw = args[i + 1].Trim().Trim('"');
+                break;
+            }
+
+            if (args[i].StartsWith("--volume=", StringComparison.OrdinalIgnoreCase))
+            {
+                raw = args[i]["--volume=".Length..].Trim().Trim('"');
+                break;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(raw) ||
+            !double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
+            return null;
+
+        return VolumeRequestService.Clamp01(v);
     }
 
     public static void ReplaceSettings(AppSettings settings) => Settings = settings;

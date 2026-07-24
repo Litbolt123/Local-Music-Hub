@@ -62,14 +62,42 @@ public static class HubTheme
 
         var target = dark ? DarkThemeUri : LightThemeUri;
         var merged = app.Resources.MergedDictionaries;
-        for (var i = merged.Count - 1; i >= 0; i--)
+
+        // Keep at least one theme dictionary mounted at all times. Removing first causes
+        // DynamicResource lookups (e.g. HubTextPrimaryBrush) to throw mid-layout.
+        if (!HasTheme(merged, dark))
         {
-            if (merged[i].Source == LightThemeUri || merged[i].Source == DarkThemeUri)
-                merged.RemoveAt(i);
+            merged.Insert(0, new ResourceDictionary { Source = target });
+            for (var i = merged.Count - 1; i >= 1; i--)
+            {
+                if (IsHubThemeDictionary(merged[i]))
+                    merged.RemoveAt(i);
+            }
         }
 
-        merged.Insert(0, new ResourceDictionary { Source = target });
         ApplyAccent(accentTheme, customAccentHex);
+    }
+
+    private static bool HasTheme(System.Collections.ObjectModel.Collection<ResourceDictionary> merged, bool dark)
+    {
+        var needle = dark ? "HubThemeDark.xaml" : "HubThemeLight.xaml";
+        foreach (var dict in merged)
+        {
+            if (SourceEndsWith(dict, needle))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsHubThemeDictionary(ResourceDictionary dict) =>
+        SourceEndsWith(dict, "HubThemeDark.xaml") || SourceEndsWith(dict, "HubThemeLight.xaml");
+
+    private static bool SourceEndsWith(ResourceDictionary dict, string fileName)
+    {
+        var source = dict.Source?.OriginalString ?? dict.Source?.ToString();
+        return !string.IsNullOrEmpty(source) &&
+               source.EndsWith(fileName, StringComparison.OrdinalIgnoreCase);
     }
 
     public static void ApplyAccent(string? accentTheme, string? customAccentHex = null)
@@ -131,8 +159,14 @@ public static class HubTheme
 
     public static void Ensure(Window window)
     {
-        ApplyFromSettings();
-        window.Background = Application.Current.TryFindResource("HubBgBrush") as MediaBrush
+        var app = Application.Current;
+        // Avoid tearing down MergedDictionaries on every dialog open — that races layout.
+        if (app?.TryFindResource("HubTextPrimaryBrush") is null)
+            ApplyFromSettings();
+        else
+            ApplyAccent(App.Settings.AccentTheme, App.Settings.CustomAccentColor);
+
+        window.Background = app?.TryFindResource("HubBgBrush") as MediaBrush
                             ?? MediaBrushes.Transparent;
         try { window.Icon = TrayIconAssets.CreateWindowIcon(); } catch { /* ignore */ }
     }

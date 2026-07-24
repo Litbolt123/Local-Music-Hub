@@ -29,7 +29,7 @@ public sealed class AppSettings
     public bool RescanLibraryOnSave { get; set; } = false;
     public string OrganizeTemplate { get; set; } = @"{album_artist}\{album}\{track:00} - {title}";
     public string? OrganizeRoot { get; set; }
-    public string OutputBackend { get; set; } = "waveout";
+    public string OutputBackend { get; set; } = "wasapi";
     public string? OutputDeviceId { get; set; }
     public string ReplayGainMode { get; set; } = "off";
     public string EqPreset { get; set; } = "flat";

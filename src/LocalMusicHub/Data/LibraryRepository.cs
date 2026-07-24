@@ -17,9 +17,16 @@ public sealed class LibraryRepository
         {
             var existing = GetTrackByPath(track.FilePath);
             if (existing is not null)
+            {
                 track.ReviewStatus = existing.ReviewStatus;
+                // Prefer existing library metadata when the on-disk tags are empty
+                // (bad TagLib writes / incomplete files shouldn't blank the library).
+                track = MergePreferExistingWhenBlank(existing, track);
+            }
             else if (App.Settings.MarkNewImportsAsInbox)
+            {
                 track.ReviewStatus = "inbox";
+            }
 
             using var cmd = _db.Connection.CreateCommand();
             cmd.CommandText = """
@@ -55,6 +62,43 @@ public sealed class LibraryRepository
             cmd.ExecuteNonQuery();
         }
     }
+
+    private static LibraryTrack MergePreferExistingWhenBlank(LibraryTrack existing, LibraryTrack incoming) =>
+        new()
+        {
+            Id = existing.Id,
+            FilePath = incoming.FilePath,
+            Title = FirstNonBlank(incoming.Title, existing.Title),
+            Artist = FirstNonBlank(incoming.Artist, existing.Artist),
+            Album = FirstNonBlank(incoming.Album, existing.Album),
+            AlbumArtist = FirstNonBlank(incoming.AlbumArtist, existing.AlbumArtist),
+            Genre = FirstNonBlank(incoming.Genre, existing.Genre),
+            Comment = FirstNonBlank(incoming.Comment, existing.Comment),
+            DateReleased = FirstNonBlank(incoming.DateReleased, existing.DateReleased),
+            TrackNumber = incoming.TrackNumber ?? existing.TrackNumber,
+            Year = incoming.Year ?? existing.Year,
+            Duration = incoming.Duration.TotalSeconds > 0 ? incoming.Duration : existing.Duration,
+            Bitrate = incoming.Bitrate > 0 ? incoming.Bitrate : existing.Bitrate,
+            Format = FirstNonBlank(incoming.Format, existing.Format),
+            CoverArt = incoming.CoverArt is { Length: > 0 } ? incoming.CoverArt : existing.CoverArt,
+            DateAddedUtc = existing.DateAddedUtc,
+            FileModifiedUtc = incoming.FileModifiedUtc,
+            PlayCount = existing.PlayCount,
+            LastPlayedUtc = existing.LastPlayedUtc,
+            Rating = existing.Rating > 0 ? existing.Rating : incoming.Rating,
+            ReviewStatus = existing.ReviewStatus,
+            CueStartMs = incoming.CueStartMs ?? existing.CueStartMs,
+            CueEndMs = incoming.CueEndMs ?? existing.CueEndMs,
+            ReplayGainTrackDb = incoming.ReplayGainTrackDb ?? existing.ReplayGainTrackDb,
+            ReplayGainAlbumDb = incoming.ReplayGainAlbumDb ?? existing.ReplayGainAlbumDb,
+            ReplayGainTrackPeak = incoming.ReplayGainTrackPeak ?? existing.ReplayGainTrackPeak,
+            ReplayGainAlbumPeak = incoming.ReplayGainAlbumPeak ?? existing.ReplayGainAlbumPeak,
+        };
+
+    private static string FirstNonBlank(string? preferred, string? fallback) =>
+        !string.IsNullOrWhiteSpace(preferred) ? preferred.Trim()
+        : !string.IsNullOrWhiteSpace(fallback) ? fallback.Trim()
+        : preferred?.Trim() ?? fallback?.Trim() ?? "";
 
     public LibraryTrack? GetTrackById(long id)
     {
@@ -1387,6 +1431,66 @@ public sealed class LibraryRepository
             return ReadTracks(cmd);
         }
     }
+
+    /// <summary>
+    /// Tracks not already on the playlist, for Spotify-style “Add songs” search.
+    /// mode: suggested | recent | unrated
+    /// </summary>
+    public IReadOnlyList<LibraryTrack> SuggestTracksForPlaylist(
+        long playlistId,
+        string? search = null,
+        string mode = "suggested",
+        int limit = 40)
+    {
+        lock (_gate)
+        {
+            if (IsSmartPlaylist(playlistId))
+                return [];
+
+            limit = Math.Clamp(limit, 1, 100);
+            using var cmd = _db.Connection.CreateCommand();
+            // SQLite has no NULLS LAST — emulate for recently played.
+            var order = mode.ToLowerInvariant() switch
+            {
+                "recent" => "CASE WHEN t.last_played_utc IS NULL OR TRIM(t.last_played_utc) = '' THEN 1 ELSE 0 END, t.last_played_utc DESC, t.date_added_utc DESC",
+                "unrated" => "t.date_added_utc DESC",
+                _ => "t.play_count DESC, t.date_added_utc DESC",
+            };
+
+            var sql = """
+                SELECT t.* FROM tracks t
+                WHERE t.id NOT IN (SELECT track_id FROM playlist_tracks WHERE playlist_id = $pid)
+                """;
+            if (string.Equals(mode, "unrated", StringComparison.OrdinalIgnoreCase))
+                sql += " AND COALESCE(t.rating, 0) = 0";
+            if (string.Equals(mode, "recent", StringComparison.OrdinalIgnoreCase))
+                sql += " AND t.last_played_utc IS NOT NULL AND TRIM(t.last_played_utc) != ''";
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                sql += """
+                     AND (
+                        t.title LIKE $q ESCAPE '\' OR
+                        t.artist LIKE $q ESCAPE '\' OR
+                        t.album LIKE $q ESCAPE '\' OR
+                        t.album_artist LIKE $q ESCAPE '\'
+                     )
+                    """;
+                cmd.Parameters.AddWithValue("$q", "%" + EscapeLike(search.Trim()) + "%");
+            }
+
+            sql += $" ORDER BY {order} LIMIT $limit";
+            cmd.CommandText = sql;
+            cmd.Parameters.AddWithValue("$pid", playlistId);
+            cmd.Parameters.AddWithValue("$limit", limit);
+            return ReadTracks(cmd);
+        }
+    }
+
+    private static string EscapeLike(string value) =>
+        value.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
 
     private int CountManualPlaylistTracks(long playlistId)
     {

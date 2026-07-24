@@ -8,7 +8,9 @@ public sealed class LibraryFolderWatcher : IDisposable
     private readonly List<FileSystemWatcher> _watchers = [];
     private readonly object _pendingGate = new();
     private readonly HashSet<string> _pending = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _retryCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Timers.Timer _debounce = new(800) { AutoReset = false };
+    private readonly SemaphoreSlim _flushGate = new(1, 1);
     private bool _enabled;
 
     public event EventHandler? LibraryChanged;
@@ -18,7 +20,7 @@ public sealed class LibraryFolderWatcher : IDisposable
     public LibraryFolderWatcher(LibraryRepository repository)
     {
         _repository = repository;
-        _debounce.Elapsed += (_, _) => FlushPending();
+        _debounce.Elapsed += (_, _) => _ = FlushPendingAsync();
     }
 
     public void Apply(IEnumerable<string> roots, bool enabled)
@@ -39,6 +41,8 @@ public sealed class LibraryFolderWatcher : IDisposable
                 {
                     IncludeSubdirectories = true,
                     NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.DirectoryName,
+                    // Default 8 KB drops events under Explorer/OneDrive copy storms.
+                    InternalBufferSize = 64 * 1024,
                     EnableRaisingEvents = true,
                 };
                 watcher.Created += OnChanged;
@@ -72,21 +76,58 @@ public sealed class LibraryFolderWatcher : IDisposable
             {
                 return;
             }
-        }
 
-        if (!deleted && !AudioTagReader.IsSupported(path))
-            return;
+            // New/renamed folders: pick up audio that landed with the folder (Explorer bulk copy).
+            if (Directory.Exists(path))
+            {
+                QueueDirectoryAudio(path);
+                return;
+            }
+
+            if (!AudioTagReader.IsSupported(path))
+                return;
+        }
 
         lock (_pendingGate)
         {
             if (deleted)
+            {
                 _pending.Add("!" + path);
+                _retryCounts.Remove(path);
+            }
             else
+            {
                 _pending.Add(path);
+            }
         }
 
-        _debounce.Stop();
-        _debounce.Start();
+        KickDebounce();
+    }
+
+    private void QueueDirectoryAudio(string directory)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(directory, "*.*", SearchOption.AllDirectories))
+            {
+                if (!AudioTagReader.IsSupported(file))
+                    continue;
+                lock (_pendingGate)
+                    _pending.Add(file);
+            }
+        }
+        catch
+        {
+            /* folder may still be filling in */
+        }
+
+        lock (_pendingGate)
+        {
+            if (_pending.Count == 0)
+                return;
+        }
+
+        KickDebounce();
     }
 
     private void QueueRename(string oldPath, string newPath)
@@ -94,82 +135,155 @@ public sealed class LibraryFolderWatcher : IDisposable
         if (!_enabled || SuppressEvents || string.IsNullOrWhiteSpace(oldPath) || string.IsNullOrWhiteSpace(newPath))
             return;
 
+        if (Directory.Exists(newPath))
+        {
+            QueueDirectoryAudio(newPath);
+            return;
+        }
+
         if (!AudioTagReader.IsSupported(newPath) && !AudioTagReader.IsSupported(oldPath))
             return;
 
         lock (_pendingGate)
             _pending.Add($"~{oldPath}|{newPath}");
 
+        KickDebounce();
+    }
+
+    private void KickDebounce(double intervalMs = 800)
+    {
         _debounce.Stop();
+        _debounce.Interval = intervalMs;
         _debounce.Start();
     }
 
-    private void FlushPending()
+    private async Task FlushPendingAsync()
     {
-        List<string> batch;
+        if (!await _flushGate.WaitAsync(0).ConfigureAwait(false))
+        {
+            KickDebounce(1200);
+            return;
+        }
+
+        try
+        {
+            List<string> batch;
+            lock (_pendingGate)
+            {
+                batch = _pending.ToList();
+                _pending.Clear();
+            }
+
+            var changed = false;
+            var retryLater = false;
+
+            foreach (var item in batch)
+            {
+                try
+                {
+                    if (item.StartsWith('~'))
+                    {
+                        var parts = item[1..].Split('|', 2);
+                        if (parts.Length != 2)
+                            continue;
+
+                        var oldPath = parts[0];
+                        var newPath = parts[1];
+                        if (_repository.MigrateFilePath(oldPath, newPath))
+                        {
+                            changed = true;
+                            continue;
+                        }
+
+                        if (await TryIndexFileAsync(newPath).ConfigureAwait(false))
+                        {
+                            ClearRetry(newPath);
+                            changed = true;
+                        }
+                        else
+                        {
+                            retryLater |= ScheduleRetry(item, newPath);
+                        }
+
+                        continue;
+                    }
+
+                    if (item.StartsWith('!'))
+                    {
+                        var path = item[1..];
+                        _repository.RemovePath(path);
+                        changed = true;
+                        continue;
+                    }
+
+                    if (await TryIndexFileAsync(item).ConfigureAwait(false))
+                    {
+                        ClearRetry(item);
+                        changed = true;
+                    }
+                    else
+                    {
+                        retryLater |= ScheduleRetry(item, item);
+                    }
+                }
+                catch
+                {
+                    if (!item.StartsWith('!'))
+                    {
+                        var key = item.StartsWith('~') ? item.Split('|').LastOrDefault() ?? item : item;
+                        retryLater |= ScheduleRetry(item, key);
+                    }
+                }
+            }
+
+            if (retryLater)
+                KickDebounce(2500);
+
+            if (changed)
+                LibraryChanged?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            _flushGate.Release();
+        }
+    }
+
+    private async Task<bool> TryIndexFileAsync(string path)
+    {
+        if (!File.Exists(path) || !AudioTagReader.IsSupported(path))
+            return false;
+
+        var track = await AudioFileAccess.ReadTrackWhenReadyAsync(path, DateTime.UtcNow)
+            .ConfigureAwait(false);
+        if (track is null)
+            return false;
+
+        _repository.UpsertTrack(track);
+        return true;
+    }
+
+    private void ClearRetry(string path)
+    {
+        lock (_pendingGate)
+            _retryCounts.Remove(path);
+    }
+
+    private bool ScheduleRetry(string pendingKey, string pathForCount)
+    {
         lock (_pendingGate)
         {
-            batch = _pending.ToList();
-            _pending.Clear();
-        }
-
-        var changed = false;
-        foreach (var item in batch)
-        {
-            try
+            _retryCounts.TryGetValue(pathForCount, out var count);
+            count++;
+            if (count > 3)
             {
-                if (item.StartsWith('~'))
-                {
-                    var parts = item[1..].Split('|', 2);
-                    if (parts.Length != 2)
-                        continue;
-
-                    var oldPath = parts[0];
-                    var newPath = parts[1];
-                    if (_repository.MigrateFilePath(oldPath, newPath))
-                    {
-                        changed = true;
-                        continue;
-                    }
-
-                    if (File.Exists(newPath) && AudioTagReader.IsSupported(newPath))
-                    {
-                        Thread.Sleep(150);
-                        var track = AudioTagReader.Read(newPath, DateTime.UtcNow);
-                        _repository.UpsertTrack(track);
-                        changed = true;
-                    }
-
-                    continue;
-                }
-
-                if (item.StartsWith('!'))
-                {
-                    var path = item[1..];
-                    _repository.RemovePath(path);
-                    changed = true;
-                    continue;
-                }
-
-                if (!File.Exists(item) || !AudioTagReader.IsSupported(item))
-                    continue;
-
-                Thread.Sleep(150);
-                if (!File.Exists(item))
-                    continue;
-
-                var read = AudioTagReader.Read(item, DateTime.UtcNow);
-                _repository.UpsertTrack(read);
-                changed = true;
+                _retryCounts.Remove(pathForCount);
+                return false;
             }
-            catch
-            {
-                /* ignore transient IO / tag errors */
-            }
+
+            _retryCounts[pathForCount] = count;
+            _pending.Add(pendingKey);
+            return true;
         }
-
-        if (changed)
-            LibraryChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void Stop()
@@ -182,12 +296,16 @@ public sealed class LibraryFolderWatcher : IDisposable
 
         _watchers.Clear();
         lock (_pendingGate)
+        {
             _pending.Clear();
+            _retryCounts.Clear();
+        }
     }
 
     public void Dispose()
     {
         Stop();
         _debounce.Dispose();
+        _flushGate.Dispose();
     }
 }

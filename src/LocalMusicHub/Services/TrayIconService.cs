@@ -115,7 +115,7 @@ public sealed class TrayIconService : IDisposable
             _icon.ShowBalloonTip(
                 14000,
                 $"Local Music Hub {version} is available",
-                "Click here to open the download. Quit this app before running the installer.",
+                "Click to open the app, then use Download and install on the update card.",
                 ToolTipIcon.Info);
         }
         catch
@@ -128,18 +128,15 @@ public sealed class TrayIconService : IDisposable
 
     private void UpdateBalloon_OnClicked(object? sender, EventArgs e)
     {
-        var url = _pendingUpdateBalloonUrl;
         _pendingUpdateBalloonUrl = null;
-        if (string.IsNullOrWhiteSpace(url))
-            url = UpdateCheckService.ReleasesPageUrl;
-
         try
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            ShowMainWindow();
+            if (System.Windows.Application.Current?.MainWindow is MainWindow mw &&
+                UpdateAvailabilityCache.HasPending)
             {
-                FileName = url,
-                UseShellExecute = true,
-            });
+                mw.ShowUpdateAvailable(UpdateAvailabilityCache.ToResult());
+            }
         }
         catch
         {

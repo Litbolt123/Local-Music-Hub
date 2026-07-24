@@ -7,7 +7,7 @@ namespace LocalMusicHub.Services;
 public sealed class PlaybackService : IDisposable
 {
     private IWavePlayer? _output;
-    private AudioFileReader? _reader;
+    private HubAudioReader? _reader;
     private ISampleProvider? _sampleProvider;
     private SmoothVolumeSampleProvider? _volumeProvider;
     private SpeedSampleProvider? _speedProvider;
@@ -23,7 +23,7 @@ public sealed class PlaybackService : IDisposable
     private PlaybackRepeatMode _repeatMode = PlaybackRepeatMode.Off;
     private double _volume = 0.85;
     private int? _cueEndMs;
-    private AudioFileReader? _crossfadeNextReader;
+    private HubAudioReader? _crossfadeNextReader;
     private volatile bool _crossfadeTransitionActive;
 
     public event EventHandler? StateChanged;
@@ -37,6 +37,8 @@ public sealed class PlaybackService : IDisposable
 
     public LibraryTrack? CurrentTrack => _queueIndex >= 0 && _queueIndex < _queue.Count ? _queue[_queueIndex] : null;
     public int QueueIndex => _queueIndex;
+    public string? LastError { get; private set; }
+
     public bool IsPlaying => _output?.PlaybackState == PlaybackState.Playing;
     public bool IsPaused => _isPaused;
     public bool ShuffleEnabled => _shuffleEnabled;
@@ -86,7 +88,7 @@ public sealed class PlaybackService : IDisposable
         || _crossfade is { IsFading: true }
         || _crossfade is { HasPendingHandoff: true };
 
-    private AudioFileReader? ActiveReader
+    private HubAudioReader? ActiveReader
     {
         get
         {
@@ -142,8 +144,16 @@ public sealed class PlaybackService : IDisposable
         RaiseState();
     }
 
-    public void SetQueue(IReadOnlyList<LibraryTrack> tracks, int startIndex = 0)
+    public void SetQueue(IReadOnlyList<LibraryTrack> tracks, int startIndex = 0) =>
+        SetQueueCore(tracks, startIndex, play: false);
+
+    /// <summary>Replace the queue and start playback in one step (avoids load-then-Play races).</summary>
+    public void SetQueueAndPlay(IReadOnlyList<LibraryTrack> tracks, int startIndex = 0) =>
+        SetQueueCore(tracks, startIndex, play: true);
+
+    private void SetQueueCore(IReadOnlyList<LibraryTrack> tracks, int startIndex, bool play)
     {
+        LastError = null;
         StopInternal();
         _baseQueue.Clear();
         _baseQueue.AddRange(tracks);
@@ -153,6 +163,7 @@ public sealed class PlaybackService : IDisposable
         {
             _queue.Clear();
             _queueIndex = -1;
+            LastError = "Nothing to play.";
             RaiseQueue();
             RaiseState();
             return;
@@ -162,7 +173,7 @@ public sealed class PlaybackService : IDisposable
         var startTrack = tracks[clampedStart];
         ApplyPlaybackOrder(startTrack, clampedStart);
         if (_queueIndex >= 0)
-            LoadCurrent(play: false);
+            LoadCurrent(play);
         RaiseQueue();
         RaiseState();
     }
@@ -177,8 +188,7 @@ public sealed class PlaybackService : IDisposable
             index = 0;
         }
 
-        SetQueue(list, index);
-        Play();
+        SetQueueAndPlay(list, index);
     }
 
     public void AddToQueue(IEnumerable<LibraryTrack> tracks)
@@ -325,13 +335,31 @@ public sealed class PlaybackService : IDisposable
 
     public void Play()
     {
+        LastError = null;
         if (_reader is null && _queueIndex >= 0)
-            LoadCurrent(play: true);
-        else if (_output is not null)
         {
-            _output.Play();
-            _isPaused = false;
-            MaybeRecordPlay();
+            LoadCurrent(play: true);
+            return;
+        }
+
+        if (_output is not null)
+        {
+            try
+            {
+                _output.Play();
+                _isPaused = false;
+                MaybeRecordPlay();
+                RaiseState();
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                RaiseState();
+            }
+        }
+        else if (_queueIndex >= 0)
+        {
+            LastError = "Audio output is not ready.";
             RaiseState();
         }
     }
@@ -453,16 +481,62 @@ public sealed class PlaybackService : IDisposable
 
     public void ReloadOutputSettings()
     {
-        if (_queueIndex < 0)
+        if (_sampleProvider is null)
+        {
+            if (_queueIndex >= 0)
+                LoadCurrent(play: IsPlaying && !_isPaused);
+            return;
+        }
+
+        var wasPlaying = IsPlaying && !_isPaused;
+        var wasPaused = _isPaused;
+        var position = Position;
+
+        try
+        {
+            RecreateOutput();
+            if (position > TimeSpan.Zero)
+                Seek(position);
+
+            if (wasPlaying)
+            {
+                _output?.Play();
+                _isPaused = false;
+            }
+            else if (wasPaused && _output is not null)
+            {
+                _output.Play();
+                _output.Pause();
+                _isPaused = true;
+            }
+        }
+        catch
+        {
+            LoadCurrent(play: wasPlaying);
+            if (position > TimeSpan.Zero)
+                Seek(position);
+        }
+
+        RaiseState();
+    }
+
+    private void RecreateOutput()
+    {
+        if (_sampleProvider is null)
             return;
 
-        var wasPlaying = IsPlaying;
-        var position = Position;
-        LoadCurrent(play: false);
-        if (position > TimeSpan.Zero)
-            Seek(position);
-        if (wasPlaying)
-            Play();
+        if (_output is not null)
+        {
+            _output.PlaybackStopped -= Output_OnPlaybackStopped;
+            try { _output.Stop(); } catch { /* ignore */ }
+            _output.Dispose();
+            _output = null;
+        }
+
+        var settings = App.Settings;
+        _output = AudioOutputFactory.Create(settings.OutputBackend, settings.OutputDeviceId);
+        _output.PlaybackStopped += Output_OnPlaybackStopped;
+        _output.Init(_sampleProvider);
     }
 
     public (bool WasActive, bool WasPlaying, TimeSpan Position)? ReleaseCurrentFileIfMatches(string path)
@@ -493,12 +567,30 @@ public sealed class PlaybackService : IDisposable
             RaiseState();
     }
 
-    private void LoadCurrent(bool play)
+    private void LoadCurrent(bool play) => LoadCurrent(play, skipBudget: 40);
+
+    private void LoadCurrent(bool play, int skipBudget)
     {
+        LastError = null;
         StopInternal();
         var track = CurrentTrack;
-        if (track is null || !File.Exists(track.AudioFilePath))
+        if (track is null)
+        {
+            LastError = "No track in queue.";
+            TrackChanged?.Invoke(this, EventArgs.Empty);
+            RaiseState();
             return;
+        }
+
+        if (!File.Exists(track.AudioFilePath))
+        {
+            LastError = $"File missing: {Path.GetFileName(track.AudioFilePath)}";
+            if (play && TrySkipToNextPlayable(skipBudget))
+                return;
+            TrackChanged?.Invoke(this, EventArgs.Empty);
+            RaiseState();
+            return;
+        }
 
         try
         {
@@ -530,23 +622,48 @@ public sealed class PlaybackService : IDisposable
 
             PreloadNextTrack();
 
-            _output = AudioOutputFactory.Create(settings.OutputBackend, settings.OutputDeviceId);
-            _output.PlaybackStopped += Output_OnPlaybackStopped;
-            _output.Init(_sampleProvider);
-            if (play)
+            RecreateOutput();
+            if (play && _output is not null)
             {
                 _output.Play();
                 _isPaused = false;
                 MaybeRecordPlay();
             }
+            else if (play && _output is null)
+            {
+                LastError = "Could not open the audio output device.";
+            }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            var message = ex.InnerException?.Message is { Length: > 0 } inner &&
+                          HubAudioReader.IsUnsupportedByteStream(ex)
+                ? ex.Message
+                : ex.Message;
+            LastError = message;
             StopInternal();
+            if (play && TrySkipToNextPlayable(skipBudget))
+                return;
         }
 
         TrackChanged?.Invoke(this, EventArgs.Empty);
         RaiseState();
+    }
+
+    private bool TrySkipToNextPlayable(int skipBudget)
+    {
+        if (skipBudget <= 0 || _queueIndex < 0 || _queueIndex >= _queue.Count - 1)
+            return false;
+
+        var skipped = LastError;
+        _queueIndex++;
+        LoadCurrent(play: true, skipBudget - 1);
+        if (_reader is null)
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(skipped))
+            LastError = $"Skipped unplayable track — {skipped}";
+        return true;
     }
 
     private void PreloadNextTrack()
@@ -581,9 +698,9 @@ public sealed class PlaybackService : IDisposable
         }
     }
 
-    private static AudioFileReader CreateReaderForTrack(LibraryTrack track)
+    private static HubAudioReader CreateReaderForTrack(LibraryTrack track)
     {
-        var reader = new AudioFileReader(track.AudioFilePath);
+        var reader = HubAudioReader.Open(track.AudioFilePath);
         if (track.CueStartMs is int nextCueStart)
             reader.CurrentTime = TimeSpan.FromMilliseconds(nextCueStart);
         return reader;
@@ -613,7 +730,7 @@ public sealed class PlaybackService : IDisposable
         return remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining;
     }
 
-    private AudioFileReader? AcquireCrossfadeNextReader()
+    private HubAudioReader? AcquireCrossfadeNextReader()
     {
         if (_crossfadeNextReader is null)
             return null;
@@ -642,7 +759,7 @@ public sealed class PlaybackService : IDisposable
         _crossfade.BeginCrossfade(next);
     }
 
-    private void ReserveCrossfadeIncoming(AudioFileReader reader, ISampleProvider samples) =>
+    private void ReserveCrossfadeIncoming(HubAudioReader reader, ISampleProvider samples) =>
         _gapless?.ReserveIncoming(reader, samples);
 
     private void Crossfade_OnStarted(object? sender, EventArgs e)

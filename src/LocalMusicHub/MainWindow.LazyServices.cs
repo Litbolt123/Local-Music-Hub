@@ -142,7 +142,13 @@ public partial class MainWindow
     {
         StartupProfiler.Mark("lazy.playback.configure");
         var playback = EnsurePlayback();
-        playback.SetVolume(App.Settings.DefaultVolume);
+        playback.SetVolume(App.PendingVolume ?? App.Settings.DefaultVolume);
+        if (App.PendingVolume is not null)
+        {
+            App.Settings.DefaultVolume = App.PendingVolume.Value;
+            App.ClearPendingVolume();
+        }
+        ProcessPendingVolumeRequest();
         playback.Configure(App.Settings.Shuffle, PlaybackRepeatModeExtensions.Parse(App.Settings.RepeatMode));
         playback.ShouldStopInsteadOfAdvancing = () =>
         {

@@ -5,12 +5,145 @@
 - **`move_agent_to_root` does not work** here — never call it. Stay on home workspace and use absolute paths under `GitHub projects\` for Local Music Hub / YouTube Downloader.
 - **Release builds** auto-sync to `%LocalAppData%\Programs\LocalMusicHub\` and refresh Start Menu / Desktop shortcuts (`scripts\update-windows-shortcuts.ps1`).
 
+## 2026-07-21 — Music Hub WAID-style installer upgrade (v0.13.16)
+
+- **User:** Want Local Music Hub to use WAID update flow (download + run installer) instead of manual browser download.
+- **Was:** Settings could download/run but didn’t fully quit; main update card only opened the browser.
+- **Fix:** `InstallerUpgrade` + `App.ExitForInstallerUpgrade`; update card **Download and install**; Settings confirms then quits; tray balloon focuses update card.
+
+## 2026-07-21 — WAID update flow shipped for Litbolt App Folder
+
+- **Done:** v0.1.2 — GitHub update check (WAID-style) in App Folder + Local Video Hub; repos created.
+- **Repos:** https://github.com/Litbolt123/Litbolt-App-Folder , https://github.com/Litbolt123/Local-Video-Hub
+
+## 2026-07-20 — Litbolt App Folder: WAID update flow tomorrow
+
+- **User:** Add the same update flow as WAID to Litbolt's App Folder — deferred to tomorrow.
+- **Also:** Video product renamed to **Local Video Hub** (`LocalVideoHub.exe`).
+- **Status:** Completed 2026-07-21 (v0.1.2).
+
+## 2026-07-20 — Litbolt's App Folder born (v0.1.0)
+
+- **Name:** Litbolt's App Folder (user rejected “Maple Bear Hub”).
+- **Shipped:** Parent shell with Home / Music / Video / Downloader; **Pop tab out** + **Open standalone**; Video embedded + `LitboltVideo` standalone EXE.
+- **Music & Downloader:** launcher modules → existing `%LocalAppData%\Programs\…` EXEs (stay standalone).
+- **Install:** Desktop + Start Menu shortcuts synced on Release build.
+- **Path:** `GitHub projects\Litbolt App Folder`
+
+## 2026-07-20 — Synapse-style parent hub naming
+
+- **User:** Wants Synapse-like parent — **not** named “Maple Bear Hub”.
+- **Resolved:** Named **Litbolt's App Folder**.
+
+## 2026-07-20 — Synapse-style parent hub + video player (ask)
+
+- **User:** Wants a Razer Synapse–like parent app with a home and tabs for different apps; also wants a video player.
+- **Status:** Clarifying scope before build (apps to include, single-process modules vs launcher, where video lives).
+- **Deferred from earlier:** Video library/player noted after FLAC work.
+
+## 2026-07-20 — Windows Details blank though Hub shows tags (v0.13.15)
+
+- **User:** After edit/save, Explorer Properties → Details still empty; Hub shows metadata. Stardew FLACs.
+- **Evidence:** `02 - Cloud Country.flac` starts with `ID3…`; TagLib has both Xiph (full tags) and Id3v2. Windows shell ignores ID3-on-FLAC.
+- **Cause:** `AudioTagWriter` forced ID3v2.3 globally and `GetTag(Id3v2, true)` created ID3 on FLAC (date released).
+- **Fix:** Xiph-only writes for FLAC/OGG; strip ID3 on save/cover; Library tools “Fix Windows Details”; 0.13.15.
+
+## 2026-07-20 — FLAC “fLaC Sync not found” (v0.13.14)
+
+- **User:** Title showed `Invalid Flac-File. "fLaC" Sync not found.` after 0.13.13.
+- **Cause:** BunLabs `FlacReader` requires `fLaC` at stream start; many tagged FLACs (and some mislabeled files) begin with ID3v2.
+- **Fix:** Seek past ID3, scan for sync, MF + format sniff fallbacks; 0.13.14.
+
+## 2026-07-20 — FLAC playback + format clarity (v0.13.13)
+
+- **User:** Many tracks are FLAC; expected broad format support. Video player/library noted for later.
+- **Clarified:** Scan/tags support mp3/m4a/aac/flac/wav/ogg/opus/wma/webm; playback historically used Media Foundation for most types (unreliable for FLAC/OGG).
+- **Fix:** Dedicated FLAC decoder (`BunLabs.NAudio.Flac`) in `HubAudioReader`; version 0.13.13.
+- **Deferred:** Video library / player.
+- **Follow-up Q:** Were tag/Properties write struggles from the same MF gap? **Mostly no** — tags use TagLib (separate from decode). Overlap only when a playing file is locked so Save can’t write; blank Details / ID3 were write-format and DB-merge issues (0.13.8).
+
+## 2026-07-20 — MF 0xC00D36C4 on playlist play (v0.13.12)
+
+- **User:** Title bar showed `The byte stream type of the given URL is unsupported. (0xC00D36C4)` (Stardew playlist).
+- **Cause:** `AudioFileReader` uses Media Foundation, which often can’t decode OGG/Vorbis game OSTs (still indexed by TagLib).
+- **Fix:** `HubAudioReader` opens OGG via NAudio.Vorbis, MP3 ACM fallback, auto-skip unplayable queue items.
+- **Build:** 0.13.12 Release synced; EXE FileVersion 0.13.12.0.
+
+## 2026-07-20 — Playlist play still silent on 0.13.10 (v0.13.11)
+
+- **User:** v0.13.10 installed; manual playlist Play fills queue (12 tracks, now #1) but audio stays stopped (Play icon, 0:00).
+- **Fixes:** `SetQueueAndPlay` loads with `play:true`; Space ignored when focus is a Button (start+pause race); surface `Playback.LastError` in title bar; transport Play uses Pause/Play explicitly.
+- **Build:** 0.13.11 Release built and synced (EXE FileVersion 0.13.11.0 verified).
+
+## 2026-07-20 — Manual playlists won’t play (v0.13.10)
+
+- **User:** Normal playlists don’t play on Play; smart playlists work.
+- **Cause:** `AlbumPlayPause_OnClick` / toolbar Play used `TogglePlayPause` whenever `CurrentTrack` was *in* the playlist, even when not playing — so it never `SetQueue`’d the playlist (common when the last song is also on a manual playlist).
+- **Fix:** Only Pause when that context is actively playing; otherwise always `PlayCurrentSelection`. Explicit playlist branch in `ResolveTracksForPlayback`.
+- **Build:** 0.13.10 Release built and synced.
+
+## 2026-07-20 — Wonky playlist mosaic (v0.13.9)
+
+- **User:** Smart playlist cover showed two thin vertical strips with empty space (Minecraft playlist screenshot).
+- **Cause:** 2-tile mosaic drew half-width × full-height cells, squashing square art; DPI quirks could worsen it.
+- **Fix:** Always compose a 2×2 grid (duplicate tiles when &lt;4); normalize tile DPI; display mosaic without center-crop; UniformToFill on detail cover.
+- **Build:** 0.13.9 Release built and synced.
+
+## 2026-07-20 — Refresh flash, mosaics, blank Properties (v0.13.8)
+
+- **User:** Refresh turns left panes white briefly; playlist mosaics missing; Windows file Properties Details blank.
+- **Fixes:** Stop disabling BrowseList/PlaylistNavTree during scan; deferred UI-thread mosaic load in `RefreshPlaylistNav`; album save preserves empty optional fields; ID3v2.3 on write; UpsertTrack merges blank disk tags with existing DB rows.
+- **Build:** 0.13.8 Release built and synced.
+
+## 2026-07-20 — Album editor Save clipped + refresh album (v0.13.7)
+
+- **User:** Save album not visible unless window expanded; how to refresh an album; keep new UI reachable without resizing.
+- **Fix:** Album editor DockPanel footer; scrollable details/cover; lower MinHeight. Album **Refresh** scans album folders. WrapPanel for detail actions; smart playlist footer docked; PlaylistAddPanel MaxHeight 240.
+- **Build:** 0.13.7 Release built and synced.
+
+## 2026-07-20 — HubTextPrimaryBrush crash (v0.13.6)
+
+- **User:** Error dialog `'HubTextPrimaryBrush' resource not found` (likely opening Add to playlist / playlist add panel).
+- **Cause:** `HubTheme.Apply` / `Ensure` tore down merged theme dictionaries before inserting the next; deferred DynamicResource lookups raced and threw.
+- **Fix:** Insert-before-remove theme swap; skip full re-apply in `Ensure` when brushes already exist; TryFindResource for shuffle/repeat chrome.
+- **Build:** 0.13.6 Release built and synced.
+
+## 2026-07-20 — New Music folder files not detected (v0.13.5)
+
+- **User:** Added a missing song into Music / album folder; Hub did not show it.
+- **Cause:** `ApplyFolderWatcher()` set `SuppressEvents = true` and never cleared it after Settings save — live folder watch stayed muted. Tag reads also used a 150 ms sleep and swallowed failures (copy-in-progress).
+- **Fix:** Restore suppress only while UI not ready; watcher uses `ReadTrackWhenReadyAsync`, larger buffer, directory bulk queue, limited retries.
+- **Workaround:** toolbar **Scan library** finds anything the watcher missed.
+- **Build:** 0.13.5 Release built and synced.
+
+## 2026-07-20 — Spotify-style add to playlist (v0.13.4)
+
+- **User ask:** Make add-to-playlist more like Spotify (search/suggestions/+), not just enterable text. Screenshot of Spotify’s Add to playlist sidebar.
+- **Shipped:** (1) `AddToPlaylistPickerWindow` for context-menu add — searchable manual playlists + New playlist. (2) In-playlist **Add songs** panel with search, filter chips, track rows with cover/title/artist/**+**. Empty playlists auto-open the panel. `LibraryRepository.SuggestTracksForPlaylist` excludes tracks already on the playlist.
+- **Build:** 0.13.4 Release built and synced to `%LocalAppData%\Programs\LocalMusicHub\`.
+
+## 2026-07-20 — Album-wide artist (v0.13.3)
+
+- **User ask:** Manually set artist for a whole album.
+- **Change:** Album editor adds Artist (all tracks) + Apply ↓ + Same as album artist; checkbox applies on Save (default on). Writes per-track Artist tags, not only AlbumArtist.
+
+## 2026-07-20 — Playlists ≠ albums (v0.13.2)
+
+- **User:** “Playlists should not be albums” + find related issues.
+- **Fixes:** Back from playlist no longer opens Albums; playlist Pause works; Edit album hidden on playlist; lyrics download uses playlist tracks; GetPlaylist instead of GetPlaylists(); empty-state copy.
+
+## 2026-07-20 — Output device switching (v0.13.1)
+
+- **Symptom:** Changing output device in Settings had no effect.
+- **Cause:** Default backend was WaveOut, which ignores WASAPI device IDs; reload also rebuilt the entire decode pipeline unnecessarily.
+- **Fix:** WASAPI default + auto-WASAPI when a specific device is chosen; `RecreateOutput()` hot-swaps endpoint on Save while keeping playback position.
+
 ## 2026-07-19 — v0.13.0 release + push ingest + player polish
 
 - **Release:** `v0.13.0` — folds 0.11.x–0.12.x playback/theme fixes plus new features below. `RELEASE_BODY.md`, README, roadmap updated.
 - **Push ingest:** Hub `LibraryIngestHost` on `http://127.0.0.1:47385/library/ingest` (token in `settings.json`). YouTube Downloader **2.1.1** calls push on music download complete (`LocalMusicHubPushIngest.cs`). Folder watch remains fallback.
 - **Player polish:** Mini player seek + volume; tray menu accent tint; removed orphan `CoverAdjustWindow` / `AlbumEditWindow`.
-- **Build:** Hub 0.13.0 synced locally. YT 2.1.1 compiled (user may need to close YT app to sync install).
+- **Build:** Hub 0.13.0 synced locally. YT 2.1.1 rebuilt + synced from Release output (2026-07-20).
 
 ## 2026-07-19 — Seek bar hop at track end (v0.12.2)
 
@@ -635,3 +768,30 @@ Shipped full plan except DLNA/Cast:
 - **Settings:** Appearance section in `SettingsWindow.xaml` — dark checkbox + accent ComboBox; applies on Save (`MainWindow` calls `HubTheme.ApplyFromSettings` + `Tray.ApplyTheme`).
 - **Gaps / quick wins:** `HubPrimaryButton` hardcodes `White` (breaks Spotify dark-on-green); shuffle/repeat icons not refreshed after theme save; `LibraryToolsWindow` missing `HubTheme.Ensure`; `StarRatingControl` caches accent brush on Loaded only; tray menu ignores accent.
 - **Extension path:** Preset catalog in `HubTheme.ResolveAccent` + ComboBox items; custom accent via `AccentTheme=custom` + `CustomAccentColor` hex + contrast-based `HubPrimaryForegroundColor`.
+
+## 2026-07-20 — CLI `--minimized --playlist` investigation (report only)
+
+- **Ask:** Does music autoplay on start/`--minimized`? How are playlists started? IPC for `--playlist`? Minimal plan.
+- **Findings:** No autoplay on startup or `--minimized` (tray hide only). Playlists via UI → `PlayCurrentSelection` / double-click → `Playback.SetQueueAndPlay`. Second-instance already forwards `--import` via `import-request.json` + `activate.signal`; extend same pattern for `--playlist`.
+- **Decision:** Report only (~60–80 line change); parent decides implementation.
+
+## 2026-07-24 — Harbor volume + playlist discovery (report only)
+
+- **Ask:** Where is DefaultVolume stored; how playlists are stored; existing `--volume`/volume IPC; smallest Harbor path for (a) list playlist names read-only, (b) start LMH at a volume.
+- **Volume:** `%LocalAppData%\LocalMusicHub\settings.json` property `DefaultVolume` (PascalCase), **0–1** double (default `0.85`). Live slider also writes `App.Settings.DefaultVolume` via `Playback.SetVolume`. **No `--volume` and no volume IPC.**
+- **Playlists:** SQLite `%LocalAppData%\LocalMusicHub\library.db`, table `playlists` (`name`, plus `is_smart`, `rules_json`, `folder_id`). List: `SELECT name FROM playlists ORDER BY name COLLATE NOCASE`. WAL mode — concurrent read OK.
+- **Existing CLI/IPC:** `--minimized`/`--tray`, `--playlist`/`--playlist=`, `--import`/`--import-folder`; second-instance → `playlist-request.json` (`PlaylistName`, `RequestedUtc`). Harbor already launches `--minimized --playlist "…"`.
+- **Recommended:** Harbor read-only SQLite for playlist names (already has `Microsoft.Data.Sqlite`). Extend LMH with `--volume` (0–1) + optional `Volume` on `playlist-request.json` (and forward in `SingleInstanceService`); Harbor `TryLaunch` appends `--volume`. No code changes this session.
+
+## 2026-07-24 — LMH update flow fixed to match WAID (v0.13.17)
+
+- **User:** Fix Local Music Hub update stuff to match What Am I Doing.
+- **Was:** Installed app still 0.11.0; WAID-style `InstallerUpgrade` in source but not synced. GitHub `v0.13.0` advertised as 0.13.0 while asset was `LocalMusicHub-Setup-0.11.6.exe`. Settings/quit paths not fully WAID-aligned.
+- **Fix:** Update check prefers Setup EXE filename version when tag/asset disagree; Settings Updates UI matches WAID (panel + Check now / Releases page); `InstallerUpgrade` + full quit (close owned windows, Bypass Closing); tray balloon still focuses update card. Built/synced **0.13.17** to `%LocalAppData%\Programs\LocalMusicHub\`.
+- **Open:** Publish a real GitHub Release with `LocalMusicHub-Setup-0.13.17.exe` so other machines can update via GitHub.
+
+## 2026-07-24 — Publishing v0.13.17 GitHub Release
+
+- **User:** Publish a real release.
+- **Plan:** Fold UNRELEASED into `RELEASE_BODY.md`, commit all 0.13.1–0.13.17 work, push `main`, tag `v0.13.17`, let `release-windows.yml` build `LocalMusicHub-Setup-0.13.17.exe`.
+

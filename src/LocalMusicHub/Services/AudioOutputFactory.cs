@@ -7,7 +7,11 @@ public static class AudioOutputFactory
 {
     public static IWavePlayer Create(string backend, string? deviceId)
     {
-        if (string.Equals(backend, "wasapi", StringComparison.OrdinalIgnoreCase))
+        // Device IDs come from WASAPI enumeration; WaveOut cannot target them.
+        var useWasapi = string.Equals(backend, "wasapi", StringComparison.OrdinalIgnoreCase)
+                        || !string.IsNullOrWhiteSpace(deviceId);
+
+        if (useWasapi)
         {
             using var enumerator = new MMDeviceEnumerator();
             var device = !string.IsNullOrWhiteSpace(deviceId)

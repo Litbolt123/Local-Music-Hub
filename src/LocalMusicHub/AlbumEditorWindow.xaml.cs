@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using LocalMusicHub.Models;
 using LocalMusicHub.Services;
@@ -7,16 +9,48 @@ using MessageBox = System.Windows.MessageBox;
 
 namespace LocalMusicHub;
 
-public sealed class AlbumTrackEditRow
+public sealed class AlbumTrackEditRow : INotifyPropertyChanged
 {
+    private string _trackNumberText = "";
+    private string _title = "";
+    private string _artist = "";
+    private int _rating;
+
     public long Id { get; init; }
     public bool IsEditable { get; init; } = true;
-    public string TrackNumberText { get; set; } = "";
+
+    public string TrackNumberText
+    {
+        get => _trackNumberText;
+        set { if (_trackNumberText == value) return; _trackNumberText = value; OnPropertyChanged(); }
+    }
+
     public int? TrackNumber { get; set; }
-    public string Title { get; set; } = "";
-    public string Artist { get; set; } = "";
-    public int Rating { get; set; }
+
+    public string Title
+    {
+        get => _title;
+        set { if (_title == value) return; _title = value; OnPropertyChanged(); }
+    }
+
+    public string Artist
+    {
+        get => _artist;
+        set { if (_artist == value) return; _artist = value; OnPropertyChanged(); }
+    }
+
+    public int Rating
+    {
+        get => _rating;
+        set { if (_rating == value) return; _rating = value; OnPropertyChanged(); }
+    }
+
     public string DurationLabel { get; init; } = "";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 public partial class AlbumEditorWindow
@@ -57,13 +91,14 @@ public partial class AlbumEditorWindow
 
         AlbumArtistBox.Text = albumArtist;
         AlbumBox.Text = album;
+        TrackArtistBox.Text = ResolveCommonTrackArtist(_albumTracks);
         YearBox.Text = ResolveAlbumYear(_albumTracks)?.ToString() ?? "";
         GenreBox.Text = ResolveAlbumGenre(_albumTracks);
         DateReleasedBox.Text = ResolveAlbumDateReleased(_albumTracks);
         CommentsBox.Text = ResolveAlbumComment(_albumTracks);
         SubtitleText.Text = $"{albumArtist} — {album}";
         TrackCountText.Text =
-            $"Album fields apply to all {_albumTracks.Count} track(s). Set per-track ratings below.";
+            $"Album fields apply to all {_albumTracks.Count} track(s). Use Artist (all tracks) or edit songs below.";
 
         foreach (var track in _albumTracks
                      .OrderBy(t => t.TrackNumber ?? int.MaxValue)
@@ -84,6 +119,38 @@ public partial class AlbumEditorWindow
         }
 
         RefreshPreview();
+    }
+
+    private static string ResolveCommonTrackArtist(IReadOnlyList<LibraryTrack> tracks)
+    {
+        var artists = tracks
+            .Select(t => t.Artist?.Trim() ?? "")
+            .Where(a => a.Length > 0)
+            .ToList();
+        if (artists.Count == 0)
+            return "";
+        return artists.GroupBy(a => a, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(g => g.Count())
+            .First()
+            .Key;
+    }
+
+    private void ApplyTrackArtist_OnClick(object sender, RoutedEventArgs e)
+    {
+        var artist = TrackArtistBox.Text.Trim();
+        foreach (var row in TrackRows.Where(r => r.IsEditable))
+            row.Artist = artist;
+        if (ApplyTrackArtistOnSaveBox is not null)
+            ApplyTrackArtistOnSaveBox.IsChecked = true;
+        StatusText.Text = string.IsNullOrEmpty(artist)
+            ? "Cleared Artist on every editable track"
+            : $"Set Artist to “{artist}” on {TrackRows.Count(r => r.IsEditable)} track(s)";
+    }
+
+    private void CopyAlbumArtistToTrackArtist_OnClick(object sender, RoutedEventArgs e)
+    {
+        TrackArtistBox.Text = AlbumArtistBox.Text.Trim();
+        StatusText.Text = "Copied album artist into Artist (all tracks)";
     }
 
     private static int? ResolveAlbumYear(IReadOnlyList<LibraryTrack> tracks)
@@ -347,13 +414,25 @@ public partial class AlbumEditorWindow
             }
         }
 
+        if (ApplyTrackArtistOnSaveBox.IsChecked == true)
+        {
+            var trackArtist = TrackArtistBox.Text.Trim();
+            // Never wipe per-track artists with an empty "all tracks" box.
+            if (!string.IsNullOrWhiteSpace(trackArtist))
+            {
+                foreach (var row in TrackRows.Where(r => r.IsEditable))
+                    row.Artist = trackArtist;
+            }
+        }
+
+        ResultTracks = TrackRows.ToList();
+        // Empty optional album fields mean "leave each track as-is" (null), not clear.
+        ResultGenre = string.IsNullOrWhiteSpace(GenreBox.Text) ? null : GenreBox.Text.Trim();
+        ResultDateReleased = string.IsNullOrWhiteSpace(DateReleasedBox.Text) ? null : DateReleasedBox.Text.Trim();
+        ResultComment = string.IsNullOrWhiteSpace(CommentsBox.Text) ? null : CommentsBox.Text.Trim();
         ResultAlbumArtist = AlbumArtistBox.Text.Trim();
         ResultAlbum = album;
         ResultYear = year;
-        ResultGenre = GenreBox.Text.Trim();
-        ResultDateReleased = DateReleasedBox.Text.Trim();
-        ResultComment = CommentsBox.Text.Trim();
-        ResultTracks = TrackRows.ToList();
         UpdateCover = UpdateCoverBox.IsChecked == true;
         ClearCover = UpdateCover && _removeCover;
 

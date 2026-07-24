@@ -8,8 +8,8 @@ public static class PlaybackPipeline
 {
     public static PlaybackPipelineResult Build(LibraryTrack track, AppSettings settings)
     {
-        var reader = new AudioFileReader(track.AudioFilePath);
-        ISampleProvider chain = AudioFileReaders.AsSamples(reader);
+        var reader = HubAudioReader.Open(track.AudioFilePath);
+        ISampleProvider chain = reader;
 
         GaplessSampleProvider? gapless = null;
         var useTrackContainer = settings.GaplessEnabled || settings.CrossfadeEnabled;
@@ -58,7 +58,7 @@ public static class PlaybackPipeline
 
 public readonly record struct PlaybackPipelineResult(
     ISampleProvider Provider,
-    AudioFileReader Reader,
+    HubAudioReader Reader,
     GaplessSampleProvider? Gapless,
     CrossfadeSampleProvider? Crossfade,
     SmoothVolumeSampleProvider Volume,

@@ -94,6 +94,10 @@ public partial class MainWindow
         var name = Path.GetFileName(e.FullPath);
         if (string.Equals(name, "import-request.json", StringComparison.OrdinalIgnoreCase))
             Dispatcher.Invoke(ProcessPendingImportRequest);
+        else if (string.Equals(name, "playlist-request.json", StringComparison.OrdinalIgnoreCase))
+            Dispatcher.Invoke(ProcessPendingPlaylistRequest);
+        else if (string.Equals(name, "volume-request.json", StringComparison.OrdinalIgnoreCase))
+            Dispatcher.Invoke(ProcessPendingVolumeRequest);
         else if (string.Equals(name, "activate.signal", StringComparison.OrdinalIgnoreCase))
             Dispatcher.Invoke(ActivateFromSecondInstance);
     }
@@ -125,6 +129,92 @@ public partial class MainWindow
             ImportAudioFile(request.Path, fromExternalRequest: true);
     }
 
+    private void ProcessPendingPlaylistRequest()
+    {
+        if (!PlaylistPlayRequestService.TryReadPending(out var request) || request is null)
+            return;
+
+        PlaylistPlayRequestService.ClearPending();
+        TryPlayPlaylistByName(request.PlaylistName);
+    }
+
+    private void ProcessPendingVolumeRequest()
+    {
+        if (!VolumeRequestService.TryReadPending(out var request) || request is null)
+            return;
+
+        VolumeRequestService.ClearPending();
+        ApplyExternalVolume(request.Volume);
+    }
+
+    private void ApplyExternalVolume(double volume)
+    {
+        volume = VolumeRequestService.Clamp01(volume);
+        App.Settings.DefaultVolume = volume;
+        EnsurePlayback().SetVolume(volume);
+        _suppressVolumeSlider = true;
+        try
+        {
+            if (VolumeSlider is not null)
+                VolumeSlider.Value = volume;
+        }
+        finally
+        {
+            _suppressVolumeSlider = false;
+        }
+
+        UpdateMuteChrome();
+    }
+
+    private void TryPlayPendingPlaylist()
+    {
+        if (!string.IsNullOrWhiteSpace(App.PendingPlaylistName))
+        {
+            var name = App.PendingPlaylistName;
+            App.ClearPendingPlaylistName();
+            TryPlayPlaylistByName(name);
+            return;
+        }
+
+        ProcessPendingPlaylistRequest();
+    }
+
+    private void TryPlayPlaylistByName(string? playlistName)
+    {
+        if (string.IsNullOrWhiteSpace(playlistName))
+            return;
+
+        try
+        {
+            var playlist = Repository.GetPlaylists(includeCoverArt: false)
+                .FirstOrDefault(p => string.Equals(p.Name, playlistName.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (playlist is null)
+            {
+                ViewTitleText.Text = $"Playlist not found: {playlistName.Trim()}";
+                return;
+            }
+
+            var tracks = Repository.GetPlaylistTracks(playlist.Id);
+            if (tracks.Count == 0)
+            {
+                ViewTitleText.Text = $"Playlist empty: {playlist.Name}";
+                return;
+            }
+
+            _browseMode = "playlist";
+            _selectedPlaylistId = playlist.Id;
+            Playback.SetQueueAndPlay(tracks, 0);
+            if (!Playback.IsPlaying && !string.IsNullOrWhiteSpace(Playback.LastError))
+                ViewTitleText.Text = Playback.LastError;
+            RefreshNowPlaying();
+            UpdatePlayPauseChrome();
+        }
+        catch (Exception ex)
+        {
+            ViewTitleText.Text = $"Couldn’t start playlist: {ex.Message}";
+        }
+    }
+
     private void ProcessStartupImport()
     {
         if (!string.IsNullOrWhiteSpace(App.PendingImportPath))
@@ -154,6 +244,11 @@ public partial class MainWindow
 
         if (e.Key == Key.Space && !IsTextInputFocused())
         {
+            // Space activates a focused Button (Play) — don't also TogglePlayPause or we
+            // start playback then immediately pause.
+            if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.ButtonBase)
+                return;
+
             if (Playback.CurrentTrack is not null)
             {
                 Playback.TogglePlayPause();
@@ -472,6 +567,8 @@ public partial class MainWindow
         FolderWatcher.SuppressEvents = false;
         HookFolderWatcherWhenReady();
 
+        Dispatcher.BeginInvoke(TryPlayPendingPlaylist, DispatcherPriority.ApplicationIdle);
+
         StartupProfiler.Finish($"startup.ready ({trackCount} tracks, {playlistTree.Count} playlist nodes)");
     }
 
@@ -513,6 +610,15 @@ public partial class MainWindow
 
     private void MainWindow_OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        // WAID-style: installer upgrade must fully exit (not cancel → tray).
+        if (System.Windows.Application.Current is App { BypassMainWindowCloseCancel: true })
+        {
+            _forceClose = true;
+            e.Cancel = false;
+            CleanupOnRealClose();
+            return;
+        }
+
         if (!_forceClose && (App.Settings.MinimizeToTray || App.Settings.StartWithWindows))
         {
             e.Cancel = true;
@@ -520,6 +626,11 @@ public partial class MainWindow
             return;
         }
 
+        CleanupOnRealClose();
+    }
+
+    private void CleanupOnRealClose()
+    {
         _scanCts?.Cancel();
         _positionTimer.Stop();
         SetPositionRenderActive(false);
@@ -640,6 +751,7 @@ public partial class MainWindow
             onOrganize: () => OrganizeFiles_OnClick(this, new RoutedEventArgs()),
             onReplayGain: () => ScanReplayGain_OnClick(this, new RoutedEventArgs()),
             onCleanDead: () => CleanDead_OnClick(this, new RoutedEventArgs()),
+            onFixWindowsDetails: () => _ = FixWindowsFileDetailsAsync(),
             onScanLibrary: () => ScanLibrary_OnClick(this, new RoutedEventArgs()),
             onScanFolders: () => ScanFolders_OnClick(this, new RoutedEventArgs()))
         {
@@ -648,13 +760,87 @@ public partial class MainWindow
         dlg.ShowDialog();
     }
 
+    private async Task FixWindowsFileDetailsAsync()
+    {
+        var confirm = MessageBox.Show(this,
+            "This removes non-standard ID3 tags from FLAC/OGG files so Windows Explorer Properties → Details can show title, artist, album, etc.\n\nVorbis comments (the real tags) are kept. Continue?",
+            "Fix Windows Details",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        var tracks = Repository.GetAllTracks()
+            .Where(t =>
+            {
+                var ext = Path.GetExtension(t.AudioFilePath);
+                return ext.Equals(".flac", StringComparison.OrdinalIgnoreCase) ||
+                       ext.Equals(".ogg", StringComparison.OrdinalIgnoreCase) ||
+                       ext.Equals(".oga", StringComparison.OrdinalIgnoreCase) ||
+                       ext.Equals(".opus", StringComparison.OrdinalIgnoreCase);
+            })
+            .ToList();
+
+        if (tracks.Count == 0)
+        {
+            MessageBox.Show(this, "No FLAC/OGG tracks found in the library.", "Fix Windows Details",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var fixedCount = 0;
+        var skipped = 0;
+        var errors = 0;
+        ViewTitleText.Text = $"Fixing Windows Details 0/{tracks.Count}…";
+
+        await Task.Run(() =>
+        {
+            for (var i = 0; i < tracks.Count; i++)
+            {
+                var path = tracks[i].AudioFilePath;
+                try
+                {
+                    if (!File.Exists(path))
+                    {
+                        Interlocked.Increment(ref skipped);
+                    }
+                    else if (AudioTagWriter.TryRepairWindowsVisibleTags(path))
+                    {
+                        Interlocked.Increment(ref fixedCount);
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref skipped);
+                    }
+                }
+                catch
+                {
+                    Interlocked.Increment(ref errors);
+                }
+
+                var done = i + 1;
+                Dispatcher.Invoke(() => ViewTitleText.Text = $"Fixing Windows Details {done}/{tracks.Count}…");
+            }
+        }).ConfigureAwait(true);
+
+        ViewTitleText.Text = errors == 0
+            ? $"Windows Details fixed on {fixedCount} file(s)"
+            : $"Fixed {fixedCount}, skipped {skipped}, {errors} failed";
+        MessageBox.Show(this,
+            $"Updated {fixedCount} file(s).\nSkipped {skipped} (already clean or missing).\nFailed {errors}.\n\nRe-open Properties → Details on a FLAC to verify.",
+            "Fix Windows Details",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
     private void ApplyFolderWatcher()
     {
         var roots = App.Settings.LibraryFolders.Where(Directory.Exists).Distinct().ToList();
         if (roots.Count == 0)
             roots.Add(AppPaths.DefaultMusicFolder);
-        FolderWatcher.SuppressEvents = true;
+        // Do not leave SuppressEvents=true here — that permanently muted the watcher after Settings save.
         FolderWatcher.Apply(roots, App.Settings.WatchLibraryFolders);
+        FolderWatcher.SuppressEvents = !_libraryUiReady;
     }
 
     private void ApplyDownloaderSidebarLayout()
@@ -1119,8 +1305,8 @@ public partial class MainWindow
         }
 
         _scanInProgress = true;
-        BrowseList.IsEnabled = false;
-        PlaylistNavTree.IsEnabled = false;
+        // Do not disable BrowseList / PlaylistNavTree — IsEnabled=false washes them white
+        // under Hub themes and looks like a flash during album Refresh / scans.
         ViewTitleText.Text = folderScan
             ? $"Scanning {scanRoots.Count} folder{(scanRoots.Count == 1 ? "" : "s")}…"
             : "Scanning…";
@@ -1166,8 +1352,6 @@ public partial class MainWindow
         finally
         {
             _scanInProgress = false;
-            BrowseList.IsEnabled = true;
-            PlaylistNavTree.IsEnabled = true;
         }
     }
 
@@ -1277,8 +1461,11 @@ public partial class MainWindow
         if (tracks.Count == 0)
             return;
 
-        Playback.SetQueue(tracks, 0);
-        Playback.Play();
+        Playback.SetQueueAndPlay(tracks, 0);
+        if (!Playback.IsPlaying && !string.IsNullOrWhiteSpace(Playback.LastError))
+            ViewTitleText.Text = Playback.LastError;
+        RefreshNowPlaying();
+        UpdatePlayPauseChrome();
     }
 
     private static LibraryPlaylist? GetPlaylistFromNode(object? item) =>
@@ -1363,6 +1550,8 @@ public partial class MainWindow
         _searchDebounceTimer.Start();
     }
 
+    private int _playlistNavCoverGeneration;
+
     private void RefreshPlaylistNav(IReadOnlyList<PlaylistTreeNode>? tree = null)
     {
         var selectedId = _selectedPlaylistId;
@@ -1374,6 +1563,34 @@ public partial class MainWindow
             TrySelectTreeNode(FindPlaylistNode(tree, id));
             _suppressNavEvents = false;
         }
+
+        // Mosaics use RenderTargetBitmap — must build on the UI thread. Defer so nav text shows first.
+        var generation = ++_playlistNavCoverGeneration;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (generation != _playlistNavCoverGeneration)
+                return;
+
+            try
+            {
+                var withCovers = Repository.GetPlaylistTree(includeCoverArt: true);
+                if (generation != _playlistNavCoverGeneration)
+                    return;
+
+                var keepId = _selectedPlaylistId;
+                PlaylistNavTree.ItemsSource = withCovers;
+                if (keepId is long pid)
+                {
+                    _suppressNavEvents = true;
+                    TrySelectTreeNode(FindPlaylistNode(withCovers, pid));
+                    _suppressNavEvents = false;
+                }
+            }
+            catch
+            {
+                /* leave text-only nav */
+            }
+        }, DispatcherPriority.Background);
     }
 
     private void RefreshLibraryViews()
@@ -1387,6 +1604,9 @@ public partial class MainWindow
             ShowTrackList();
             HideAlbumDetailHeader();
             UpdateEmptyHint(false);
+
+            if (_browseMode != "playlist")
+                HidePlaylistAddPanel();
 
             switch (_browseMode)
             {
@@ -1500,7 +1720,7 @@ public partial class MainWindow
                     ApplyListTemplate("tracks");
                     if (_selectedPlaylistId is long playlistId)
                     {
-                        var playlist = Repository.GetPlaylists().FirstOrDefault(p => p.Id == playlistId);
+                        var playlist = Repository.GetPlaylist(playlistId);
                         ViewTitleText.Text = playlist is null ? "Playlist" : playlist.Name;
                         var playlistTracks = Repository.GetPlaylistTracks(playlistId).ToList();
                         if (!string.IsNullOrWhiteSpace(search))
@@ -1518,6 +1738,12 @@ public partial class MainWindow
                             UpdateEmptyHint(true,
                                 "No tracks match these rules yet.\nEdit the playlist rules or rate/play more of your library.");
                         }
+                        else if (playlistTracks.Count == 0 && string.IsNullOrWhiteSpace(search) && _quickFilters.Count == 0)
+                        {
+                            UpdateEmptyHint(true, playlist is { IsSmart: false }
+                                ? "This playlist is empty.\nUse Add songs below to search your library."
+                                : "No tracks in this playlist.");
+                        }
                         else if (playlistTracks.Count == 0)
                         {
                             UpdateEmptyHint(true, "No tracks match your search or filters.");
@@ -1529,11 +1755,14 @@ public partial class MainWindow
 
                         if (playlist is not null)
                             ShowPlaylistDetailHeader(playlist, playlistTracks.Count);
+
+                        UpdatePlaylistAddPanel(playlist);
                     }
                     else
                     {
                         ViewTitleText.Text = "Playlist";
                         TrackList.ItemsSource = Array.Empty<LibraryTrack>();
+                        HidePlaylistAddPanel();
                     }
 
                     break;
@@ -1644,8 +1873,9 @@ public partial class MainWindow
         AlbumDetailArtist.Text = "";
         AlbumDetailArtist.Visibility = Visibility.Collapsed;
         AlbumDetailMeta.Text = $"{trackCount} song{(trackCount == 1 ? "" : "s")}";
-        AlbumDetailCover.Source = CoverArtHelper.ToBitmap(playlist.CoverArt, 720, centerCropSquare: true);
+        AlbumDetailCover.Source = CoverArtHelper.ToBitmap(playlist.CoverArt, 720, centerCropSquare: false);
         ViewTitleText.Text = playlist.Name;
+        ApplyDetailHeaderActions(forPlaylist: true);
         UpdatePlayPauseChrome();
     }
 
@@ -1680,6 +1910,7 @@ public partial class MainWindow
             : $"{tracks.Count} songs";
         AlbumDetailCover.Source = CoverArtHelper.ToBitmap(cover, 720, centerCropSquare: true);
         ViewTitleText.Text = "Album";
+        ApplyDetailHeaderActions(forPlaylist: false);
         UpdatePlayPauseChrome();
     }
 
@@ -1705,11 +1936,71 @@ public partial class MainWindow
         AlbumDetailMeta.Text = meta;
         AlbumDetailCover.Source = null;
         ViewTitleText.Text = title;
+        ApplyDetailHeaderActions(forPlaylist: false, hideEditAlbum: true);
         UpdatePlayPauseChrome();
+    }
+
+    private void ApplyDetailHeaderActions(bool forPlaylist, bool hideEditAlbum = false)
+    {
+        if (AlbumDetailEditButton is not null)
+        {
+            AlbumDetailEditButton.Visibility = forPlaylist || hideEditAlbum
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+
+        if (AlbumDetailRefreshButton is not null)
+        {
+            AlbumDetailRefreshButton.Visibility = forPlaylist || hideEditAlbum
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+
+        if (AlbumDetailAddSongsButton is not null)
+        {
+            var showAdd = forPlaylist && _selectedPlaylistId is long pid
+                          && Repository.GetPlaylist(pid) is { IsSmart: false };
+            AlbumDetailAddSongsButton.Visibility = showAdd ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        if (AlbumDetailLyricsButton is null)
+            return;
+
+        AlbumDetailLyricsButton.Visibility = Visibility.Visible;
+        if (forPlaylist)
+        {
+            AlbumDetailLyricsButton.Content = "Download lyrics";
+            AlbumDetailLyricsButton.ToolTip = "Download lyrics for every track in this playlist (LRCLIB)";
+        }
+        else
+        {
+            AlbumDetailLyricsButton.Content = "Download lyrics";
+            AlbumDetailLyricsButton.ToolTip = "Download lyrics for every track on this album (LRCLIB)";
+        }
     }
 
     private void BackToAlbums_OnClick(object sender, RoutedEventArgs e)
     {
+        if (_browseMode == "playlist")
+        {
+            _selectedPlaylistId = null;
+            _browseMode = "playlist";
+            _suppressNavEvents = true;
+            ClearPlaylistTreeSelection();
+            _suppressNavEvents = false;
+            if (SearchBox is not null)
+                SearchBox.Text = "";
+            HideAlbumDetailHeader();
+            ShowTrackList();
+            TrackList.ItemsSource = Array.Empty<LibraryTrack>();
+            ViewTitleText.Text = "Playlists";
+            UpdateEmptyHint(true, "Pick a playlist from the sidebar.");
+            HidePlaylistAddPanel();
+            UpdatePlayPauseChrome();
+            UpdateOpenButtonVisibility();
+            return;
+        }
+
         if (_browseMode is "artist-tracks" or "genre-tracks")
         {
             var target = _listDrillDownKind is "genres" ? "genres" : "artists";
@@ -2047,8 +2338,11 @@ public partial class MainWindow
         var tracks = Repository.GetTracksForAlbum(album.Album);
         if (tracks.Count == 0)
             return;
-        Playback.SetQueue(tracks, 0);
-        Playback.Play();
+        Playback.SetQueueAndPlay(tracks, 0);
+        if (!Playback.IsPlaying && !string.IsNullOrWhiteSpace(Playback.LastError))
+            ViewTitleText.Text = Playback.LastError;
+        RefreshNowPlaying();
+        UpdatePlayPauseChrome();
     }
 
     private static DependencyObject? FindAncestorWithTag(DependencyObject? node, string tag)
@@ -2187,12 +2481,19 @@ public partial class MainWindow
 
     private void UpdateOpenButtonVisibility()
     {
-        if (OpenSelectionButton is null)
-            return;
+        if (OpenSelectionButton is not null)
+        {
+            OpenSelectionButton.Visibility = _browseMode is "home" or "albums" or "artists" or "genres"
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
 
-        OpenSelectionButton.Visibility = _browseMode is "home" or "albums" or "artists" or "genres"
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        if (EditAlbumButton is not null)
+        {
+            EditAlbumButton.Visibility = _browseMode is "playlist" or "queue" or "inbox"
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
     }
 
     private void QuickFilter_OnClick(object sender, RoutedEventArgs e)
@@ -2313,9 +2614,12 @@ public partial class MainWindow
 
     private void PlaySelection_OnClick(object sender, RoutedEventArgs e)
     {
-        if (IsSelectionContextNowPlaying())
+        // Only pause when this view is actually playing. If the current track merely
+        // appears in the playlist/album list, TogglePlayPause would resume a stale queue
+        // (or no-op) instead of starting this selection — common for manual playlists.
+        if (IsSelectionContextNowPlaying() && Playback.IsPlaying)
         {
-            Playback.TogglePlayPause();
+            Playback.Pause();
             UpdatePlayPauseChrome();
             return;
         }
@@ -2325,13 +2629,13 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Album header: Play album ↔ Pause only while this album is the active context.
+    /// Detail header Play ↔ Pause while this selection context is now playing.
     /// </summary>
     private void AlbumPlayPause_OnClick(object sender, RoutedEventArgs e)
     {
-        if (IsViewingAlbumNowPlaying() || IsViewingListDrillDownNowPlaying())
+        if (IsSelectionContextNowPlaying() && Playback.IsPlaying)
         {
-            Playback.TogglePlayPause();
+            Playback.Pause();
             UpdatePlayPauseChrome();
             return;
         }
@@ -2503,8 +2807,16 @@ public partial class MainWindow
                     start = idx;
             }
 
-            Playback.SetQueue(tracks, start);
-            Playback.Play();
+            Playback.SetQueueAndPlay(tracks, start);
+            if (!Playback.IsPlaying)
+            {
+                ViewTitleText.Text = string.IsNullOrWhiteSpace(Playback.LastError)
+                    ? "Could not start playback"
+                    : Playback.LastError;
+            }
+
+            RefreshNowPlaying();
+            UpdatePlayPauseChrome();
         }
     }
 
@@ -2512,6 +2824,9 @@ public partial class MainWindow
     {
         if (_browseMode == "queue")
             return Playback.Queue.ToList();
+
+        if (_browseMode == "playlist" && _selectedPlaylistId is long playlistId)
+            return Repository.GetPlaylistTracks(playlistId).ToList();
 
         if (_browseMode is "albums" or "home")
         {
@@ -2582,8 +2897,7 @@ public partial class MainWindow
         if (TrackList.SelectedItem is LibraryGenre genre)
             return Repository.GetTracksForGenre(genre.Name).ToList();
 
-        if (_browseMode == "playlist" && _selectedPlaylistId is long playlistId &&
-            TrackList.SelectedItem is null)
+        if (_browseMode == "playlist" && _selectedPlaylistId is long playlistId)
             return Repository.GetPlaylistTracks(playlistId).ToList();
 
         if (_browseMode == "album-tracks" && !string.IsNullOrWhiteSpace(_albumDrillDown) &&
@@ -2644,6 +2958,24 @@ public partial class MainWindow
             editTagsItem.Header = tracks.Count > 1
                 ? $"Edit tags ({tracks.Count} selected)…"
                 : "Edit tags…";
+        }
+
+        var inPlaylist = _browseMode == "playlist";
+        var editAlbumItem = menu.Items.OfType<MenuItem>()
+            .FirstOrDefault(m =>
+                (m.Header as string)?.StartsWith("Edit album", StringComparison.Ordinal) == true);
+        if (editAlbumItem is not null)
+            editAlbumItem.Visibility = inPlaylist ? Visibility.Collapsed : Visibility.Visible;
+
+        var lyricsItem = menu.Items.OfType<MenuItem>()
+            .FirstOrDefault(m =>
+                (m.Header as string)?.StartsWith("Download lyrics for", StringComparison.Ordinal) == true);
+        if (lyricsItem is not null)
+        {
+            lyricsItem.Header = inPlaylist
+                ? "Download lyrics for playlist…"
+                : "Download lyrics for album…";
+            lyricsItem.Visibility = Visibility.Visible;
         }
 
         var inboxItem = menu.Items.OfType<MenuItem>()
@@ -2722,33 +3054,149 @@ public partial class MainWindow
         if (tracks.Count == 0)
             return;
 
-        var playlists = Repository.GetPlaylists();
-        var manualPlaylists = playlists.Where(p => !p.IsSmart).ToList();
-        if (manualPlaylists.Count == 0 && playlists.Count == 0)
+        var manualCount = Repository.GetPlaylists(includeCoverArt: false).Count(p => !p.IsSmart);
+        if (manualCount == 0)
         {
             NewPlaylist_OnClick(sender, e);
-            playlists = Repository.GetPlaylists();
-            manualPlaylists = playlists.Where(p => !p.IsSmart).ToList();
-            if (manualPlaylists.Count == 0)
+            if (Repository.GetPlaylists(includeCoverArt: false).All(p => p.IsSmart))
                 return;
         }
 
-        var names = manualPlaylists.Select(p => p.Name).ToArray();
-        var prompt = new TextPromptWindow("Add to playlist", "Playlist name (existing or new):", names.FirstOrDefault() ?? "")
-        {
-            Owner = this,
-        };
-        if (prompt.ShowDialog() != true || string.IsNullOrWhiteSpace(prompt.Result))
+        var picker = new AddToPlaylistPickerWindow(Repository, tracks.Count) { Owner = this };
+        if (picker.ShowDialog() != true || picker.SelectedPlaylist is null)
             return;
 
-        var existing = manualPlaylists.FirstOrDefault(p =>
-            string.Equals(p.Name, prompt.Result, StringComparison.OrdinalIgnoreCase));
-        var playlist = existing ?? Repository.CreatePlaylist(prompt.Result);
+        var playlist = picker.SelectedPlaylist;
         Repository.AddTracksToPlaylist(playlist.Id, tracks.Select(t => t.Id));
         RefreshPlaylistNav();
         if (_browseMode == "playlist" && _selectedPlaylistId == playlist.Id)
             RefreshLibraryViews();
         ViewTitleText.Text = $"Added {tracks.Count} to “{playlist.Name}”";
+    }
+
+    private string _playlistAddMode = "suggested";
+    private DispatcherTimer? _playlistAddSearchDebounce;
+    private bool _playlistAddPanelOpen;
+
+    private void UpdatePlaylistAddPanel(LibraryPlaylist? playlist)
+    {
+        if (PlaylistAddPanel is null)
+            return;
+
+        if (playlist is null || playlist.IsSmart || _browseMode != "playlist")
+        {
+            _playlistAddPanelOpen = false;
+            HidePlaylistAddPanel();
+            return;
+        }
+
+        if (playlist.TrackCount == 0)
+            _playlistAddPanelOpen = true;
+
+        if (!_playlistAddPanelOpen)
+        {
+            PlaylistAddPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        PlaylistAddPanel.Visibility = Visibility.Visible;
+        PlaylistAddTitle.Text = playlist.TrackCount == 0
+            ? "Let's find something for your playlist"
+            : "Add to playlist";
+        RefreshPlaylistAddSuggestions();
+    }
+
+    private void HidePlaylistAddPanel()
+    {
+        if (PlaylistAddPanel is not null)
+            PlaylistAddPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void PlaylistAddSongsToggle_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (PlaylistAddPanel is null || _selectedPlaylistId is null)
+            return;
+
+        _playlistAddPanelOpen = PlaylistAddPanel.Visibility != Visibility.Visible;
+        if (!_playlistAddPanelOpen)
+        {
+            HidePlaylistAddPanel();
+            return;
+        }
+
+        PlaylistAddPanel.Visibility = Visibility.Visible;
+        PlaylistAddTitle.Text = "Add to playlist";
+        RefreshPlaylistAddSuggestions();
+        PlaylistAddSearchBox?.Focus();
+    }
+
+    private void PlaylistAddSongsClose_OnClick(object sender, RoutedEventArgs e)
+    {
+        _playlistAddPanelOpen = false;
+        HidePlaylistAddPanel();
+    }
+
+    private void PlaylistAddChip_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Primitives.ToggleButton { Tag: string mode })
+            return;
+
+        _playlistAddMode = mode;
+        if (PlaylistAddChipSuggested is not null)
+            PlaylistAddChipSuggested.IsChecked = mode == "suggested";
+        if (PlaylistAddChipRecent is not null)
+            PlaylistAddChipRecent.IsChecked = mode == "recent";
+        if (PlaylistAddChipUnrated is not null)
+            PlaylistAddChipUnrated.IsChecked = mode == "unrated";
+        RefreshPlaylistAddSuggestions();
+    }
+
+    private void PlaylistAddSearch_OnTextChanged(object sender, TextChangedEventArgs e)
+    {
+        _playlistAddSearchDebounce ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _playlistAddSearchDebounce.Tick -= PlaylistAddSearchDebounce_OnTick;
+        _playlistAddSearchDebounce.Tick += PlaylistAddSearchDebounce_OnTick;
+        _playlistAddSearchDebounce.Stop();
+        _playlistAddSearchDebounce.Start();
+    }
+
+    private void PlaylistAddSearchDebounce_OnTick(object? sender, EventArgs e)
+    {
+        _playlistAddSearchDebounce?.Stop();
+        RefreshPlaylistAddSuggestions();
+    }
+
+    private void RefreshPlaylistAddSuggestions()
+    {
+        if (PlaylistAddList is null || _selectedPlaylistId is not long playlistId)
+            return;
+        if (_browseMode != "playlist")
+            return;
+
+        var search = PlaylistAddSearchBox?.Text;
+        var tracks = Repository.SuggestTracksForPlaylist(playlistId, search, _playlistAddMode, limit: 40);
+        PlaylistAddList.ItemsSource = tracks;
+        if (PlaylistAddEmptyHint is not null)
+        {
+            PlaylistAddEmptyHint.Visibility = tracks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            PlaylistAddEmptyHint.Text = string.IsNullOrWhiteSpace(search)
+                ? "No matching tracks left to add."
+                : "No songs match that search.";
+        }
+    }
+
+    private void PlaylistAddTrack_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_selectedPlaylistId is not long playlistId)
+            return;
+        if (sender is not System.Windows.Controls.Button { Tag: LibraryTrack track })
+            return;
+
+        Repository.AddTracksToPlaylist(playlistId, [track.Id]);
+        _playlistAddPanelOpen = true;
+        RefreshPlaylistNav();
+        RefreshLibraryViews();
+        ViewTitleText.Text = $"Added “{track.DisplayTitle}”";
     }
 
     private LyricsWindow? _lyricsWindow;
@@ -3075,15 +3523,22 @@ public partial class MainWindow
         var tracks = ResolveAlbumTracksForLyrics();
         if (tracks.Count == 0)
         {
-            ViewTitleText.Text = "Select an album first";
+            ViewTitleText.Text = _browseMode == "playlist"
+                ? "Open a playlist first"
+                : "Select an album first";
             return;
         }
 
-        StartLyricsDownload(tracks, $"album ({tracks.Count} tracks)");
+        var label = _browseMode == "playlist"
+            ? $"playlist ({tracks.Count} tracks)"
+            : $"album ({tracks.Count} tracks)";
+        StartLyricsDownload(tracks, label);
     }
 
     private List<LibraryTrack> ResolveAlbumTracksForLyrics()
     {
+        if (_browseMode == "playlist" && _selectedPlaylistId is long playlistId)
+            return Repository.GetPlaylistTracks(playlistId).ToList();
         if (_browseMode == "album-tracks" && !string.IsNullOrWhiteSpace(_albumDrillDown))
             return Repository.GetTracksForAlbum(_albumDrillDown).ToList();
         if (_browseMode == "artist-tracks" && !string.IsNullOrWhiteSpace(_listDrillDown))
@@ -3122,10 +3577,59 @@ public partial class MainWindow
         });
     }
 
+    private async void RefreshAlbum_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_browseMode != "album-tracks" || string.IsNullOrWhiteSpace(_albumDrillDown))
+        {
+            ViewTitleText.Text = "Open an album to refresh it from disk";
+            return;
+        }
+
+        if (_scanInProgress)
+        {
+            ViewTitleText.Text = "A library scan is already running";
+            return;
+        }
+
+        var albumKey = _albumDrillDown;
+        var tracks = Repository.GetTracksForAlbum(albumKey);
+        var folders = tracks
+            .Select(t => Path.GetDirectoryName(t.FilePath))
+            .Where(d => !string.IsNullOrWhiteSpace(d) && Directory.Exists(d))
+            .Cast<string>()
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (folders.Count == 0)
+        {
+            ViewTitleText.Text = "No album folders found on disk to refresh";
+            return;
+        }
+
+        ViewTitleText.Text = $"Refreshing “{albumKey}”…";
+        await ScanLibraryAsync(folders, folderScan: true).ConfigureAwait(true);
+
+        if (_browseMode == "album-tracks" &&
+            string.Equals(_albumDrillDown, albumKey, StringComparison.OrdinalIgnoreCase))
+        {
+            var refreshed = Repository.GetTracksForAlbum(albumKey);
+            ViewTitleText.Text = refreshed.Count == 0
+                ? $"Refreshed — no tracks left for “{albumKey}”"
+                : $"Refreshed album — {refreshed.Count} track{(refreshed.Count == 1 ? "" : "s")}";
+        }
+    }
+
     private async void EditAlbum_OnClick(object sender, RoutedEventArgs e)
     {
         try
         {
+            if (_browseMode == "playlist")
+            {
+                ViewTitleText.Text = "Edit album is for albums — open an album or select a track elsewhere";
+                return;
+            }
+
             var seed = ResolveCoverSeedTrack();
             if (seed is null && _browseMode == "album-tracks" && !string.IsNullOrWhiteSpace(_albumDrillDown))
                 seed = Repository.GetTracksForAlbum(_albumDrillDown).FirstOrDefault();
@@ -3155,9 +3659,9 @@ public partial class MainWindow
             var newArtist = dlg.ResultAlbumArtist ?? "";
             var newAlbum = dlg.ResultAlbum;
             var newYear = dlg.ResultYear;
-            var newGenre = dlg.ResultGenre ?? "";
-            var newDateReleased = dlg.ResultDateReleased ?? "";
-            var newComment = dlg.ResultComment ?? "";
+            var newGenre = dlg.ResultGenre; // null = leave each track unchanged
+            var newDateReleased = dlg.ResultDateReleased;
+            var newComment = dlg.ResultComment;
             var trackEdits = dlg.ResultTracks.ToDictionary(r => r.Id);
             var updateCover = dlg.UpdateCover;
             var clearCover = dlg.ClearCover;
@@ -3199,14 +3703,14 @@ public partial class MainWindow
                             Id = track.Id,
                             FilePath = track.FilePath,
                             Title = row?.Title.Trim() ?? track.Title,
-                            Artist = row?.Artist.Trim() ?? track.Artist,
+                            Artist = string.IsNullOrWhiteSpace(row?.Artist) ? track.Artist : row!.Artist.Trim(),
                             AlbumArtist = newArtist,
                             Album = newAlbum,
                             TrackNumber = row?.TrackNumber ?? track.TrackNumber,
-                            Year = newYear,
-                            Genre = newGenre,
-                            DateReleased = newDateReleased,
-                            Comment = newComment,
+                            Year = newYear ?? track.Year,
+                            Genre = newGenre ?? track.Genre,
+                            DateReleased = newDateReleased ?? track.DateReleased,
+                            Comment = newComment ?? track.Comment,
                             Duration = track.Duration,
                             Bitrate = track.Bitrate,
                             Format = track.Format,
@@ -3666,8 +4170,9 @@ public partial class MainWindow
 
         // Play from here: drop tracks before the clicked item so the queue matches.
         var fromHere = Playback.Queue.Skip(index).ToList();
-        Playback.SetQueue(fromHere, 0);
-        Playback.Play();
+        Playback.SetQueueAndPlay(fromHere, 0);
+        RefreshNowPlaying();
+        UpdatePlayPauseChrome();
     }
 
     private void QueueMoveUp_OnClick(object sender, RoutedEventArgs e)
@@ -3700,13 +4205,22 @@ public partial class MainWindow
 
     private void PlayPause_OnClick(object sender, RoutedEventArgs e)
     {
-        if (Playback.CurrentTrack is null)
+        if (Playback.CurrentTrack is null || Playback.Queue.Count == 0)
         {
             PlayCurrentSelection(replaceQueue: true);
             return;
         }
 
-        Playback.TogglePlayPause();
+        if (Playback.IsPlaying)
+            Playback.Pause();
+        else
+            Playback.Play();
+
+        if (!Playback.IsPlaying && !Playback.IsPaused && !string.IsNullOrWhiteSpace(Playback.LastError))
+            ViewTitleText.Text = Playback.LastError;
+
+        RefreshNowPlaying();
+        UpdatePlayPauseChrome();
     }
 
     private void Previous_OnClick(object sender, RoutedEventArgs e) => Playback.Previous();
@@ -3737,8 +4251,8 @@ public partial class MainWindow
         if (ShuffleIcon is not null)
         {
             ShuffleIcon.Fill = Playback.ShuffleEnabled
-                ? (FindResource("HubAccentBrush") as System.Windows.Media.Brush)
-                : (FindResource("HubTextPrimaryBrush") as System.Windows.Media.Brush);
+                ? (TryFindResource("HubAccentBrush") as System.Windows.Media.Brush)
+                : (TryFindResource("HubTextPrimaryBrush") as System.Windows.Media.Brush);
         }
 
         if (RepeatButton is null)
@@ -3749,8 +4263,8 @@ public partial class MainWindow
         if (RepeatIcon is not null)
         {
             RepeatIcon.Fill = repeatOn
-                ? (FindResource("HubAccentBrush") as System.Windows.Media.Brush)
-                : (FindResource("HubTextPrimaryBrush") as System.Windows.Media.Brush);
+                ? (TryFindResource("HubAccentBrush") as System.Windows.Media.Brush)
+                : (TryFindResource("HubTextPrimaryBrush") as System.Windows.Media.Brush);
         }
 
         if (RepeatOneBadge is not null)
@@ -4324,7 +4838,8 @@ public partial class MainWindow
         _pendingUpdate = result;
         UpdateAvailabilityCache.Set(result.LatestVersion, result.InstallerDownloadUrl);
         UpdateTitle.Text = $"Version {result.LatestVersion} is available";
-        UpdateBody.Text = $"You are on {App.VersionDisplay}. Run the installer to update — your library in {AppPaths.DataDirectory} is kept.";
+        UpdateBody.Text =
+            $"You are on {App.VersionDisplay}. Download and install saves the Setup EXE, launches it, and fully quits (not tray) — same as What Am I Doing. Your library in {AppPaths.DataDirectory} is kept.";
         UpdateCard.Visibility = Visibility.Visible;
     }
 
@@ -4336,8 +4851,15 @@ public partial class MainWindow
         UpdateCard.Visibility = Visibility.Collapsed;
     }
 
-    private void UpdateDownload_OnClick(object sender, RoutedEventArgs e) =>
-        UpdateCheckService.OpenUpdateDownload(_pendingUpdate?.InstallerDownloadUrl);
+    private async void UpdateDownload_OnClick(object sender, RoutedEventArgs e)
+    {
+        ViewTitleText.Text = "Preparing update…";
+        await InstallerUpgrade.RunAsync(
+            this,
+            _pendingUpdate?.InstallerDownloadUrl ?? UpdateAvailabilityCache.InstallerDownloadUrl,
+            _pendingUpdate?.LatestVersion ?? UpdateAvailabilityCache.PendingVersion,
+            status => ViewTitleText.Text = status).ConfigureAwait(true);
+    }
 
     private void Settings_OnClick(object sender, RoutedEventArgs e)
     {

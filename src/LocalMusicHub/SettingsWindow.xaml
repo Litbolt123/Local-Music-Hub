@@ -72,11 +72,13 @@
                     </StackPanel>
                     <TextBlock Text="Output backend" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
                     <ComboBox x:Name="OutputBackendBox" Margin="0,0,0,8" MinHeight="28">
-                        <ComboBoxItem Content="WaveOut (default)" Tag="waveout"/>
-                        <ComboBoxItem Content="WASAPI" Tag="wasapi"/>
+                        <ComboBoxItem Content="WASAPI (recommended)" Tag="wasapi"/>
+                        <ComboBoxItem Content="WaveOut (legacy)" Tag="waveout"/>
                     </ComboBox>
                     <TextBlock Text="Output device" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
-                    <ComboBox x:Name="OutputDeviceBox" Margin="0,0,0,8" MinHeight="28"/>
+                    <ComboBox x:Name="OutputDeviceBox" Margin="0,0,0,4" MinHeight="28"/>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,8" TextWrapping="Wrap"
+                               Text="Per-device routing uses WASAPI. Pick System default to follow Windows, or choose a specific device."/>
                     <TextBlock Text="ReplayGain" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
                     <ComboBox x:Name="ReplayGainBox" Margin="0,0,0,8" MinHeight="28">
                         <ComboBoxItem Content="Off" Tag="off"/>
@@ -216,17 +218,21 @@
                     <Separator Margin="0,0,0,12"/>
                     <TextBlock Text="Updates (GitHub)" Style="{DynamicResource HubSectionTitle}" Margin="0,0,0,10"/>
                     <CheckBox x:Name="AutoCheckBox" Style="{DynamicResource HubSimpleCheckBox}"
-                              Content="Check for updates when the app starts"/>
+                              Content="Check for updates on each start"/>
                     <CheckBox x:Name="NotifyTrayOnUpdateBox" Style="{DynamicResource HubSimpleCheckBox}" Margin="0,0,0,8"
-                              Content="Show a tray notification when an update is available"/>
+                              Content="Tray notification when an update is found"/>
                     <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,8" TextWrapping="Wrap"
-                               Text="Checks GitHub Releases once each time you open the app. Use Download and run installer to upgrade (quit the app first)."/>
-                    <TextBlock x:Name="UpdateStatusText" Style="{DynamicResource HubHintText}" Margin="0,0,0,10"/>
-                    <WrapPanel Margin="0,0,0,12">
-                        <Button Content="Check for updates…" Style="{DynamicResource HubToolbarButton}" Click="CheckUpdates_OnClick"/>
+                               Text="Checks GitHub Releases once each time you open the app. Download and run installer saves the Setup EXE to Temp, launches it, and fully quits (not tray). You may see UAC or SmartScreen."/>
+                    <TextBlock x:Name="UpdateStatusText" Style="{DynamicResource HubHintText}" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                    <StackPanel x:Name="InstallerUpgradePanel" Visibility="Collapsed" Margin="0,0,0,8">
                         <Button x:Name="DownloadInstallerButton" Content="Download and run installer…"
-                                Style="{DynamicResource HubToolbarButton}" Click="DownloadInstaller_OnClick" IsEnabled="False"/>
-                        <Button Content="Open releases page" Style="{DynamicResource HubToolbarButton}" Click="OpenReleases_OnClick"/>
+                                Style="{DynamicResource HubPrimaryButton}" HorizontalAlignment="Left"
+                                Click="DownloadInstaller_OnClick"
+                                ToolTip="Quits the app, saves the installer to Temp, then runs setup. You may see UAC or SmartScreen."/>
+                    </StackPanel>
+                    <WrapPanel Margin="0,0,0,12">
+                        <Button Content="Check now…" Style="{DynamicResource HubToolbarButton}" Click="CheckUpdates_OnClick"/>
+                        <Button Content="Releases page" Style="{DynamicResource HubToolbarButton}" Click="OpenReleases_OnClick"/>
                     </WrapPanel>
 
                     <Separator Margin="0,0,0,12"/>

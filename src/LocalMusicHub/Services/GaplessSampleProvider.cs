@@ -4,10 +4,10 @@ namespace LocalMusicHub.Services;
 
 public sealed class GaplessSampleProvider : ISampleProvider
 {
-    private AudioFileReader? _current;
-    private AudioFileReader? _next;
+    private HubAudioReader? _current;
+    private HubAudioReader? _next;
     private ISampleProvider? _currentSamples;
-    private AudioFileReader? _incomingReader;
+    private HubAudioReader? _incomingReader;
     private ISampleProvider? _incomingSamples;
     private readonly object _gate = new();
 
@@ -26,7 +26,7 @@ public sealed class GaplessSampleProvider : ISampleProvider
 
     public WaveFormat WaveFormat { get; private set; }
 
-    public AudioFileReader? CurrentReader
+    public HubAudioReader? CurrentReader
     {
         get { lock (_gate) return _current; }
     }
@@ -34,7 +34,7 @@ public sealed class GaplessSampleProvider : ISampleProvider
     /// <summary>
     /// Reader whose decode position reflects audible output (incoming during crossfade tail).
     /// </summary>
-    public AudioFileReader? PositionReader
+    public HubAudioReader? PositionReader
     {
         get
         {
@@ -47,15 +47,15 @@ public sealed class GaplessSampleProvider : ISampleProvider
         }
     }
 
-    public void SetCurrent(AudioFileReader reader)
+    public void SetCurrent(HubAudioReader reader)
     {
         AdoptCurrent(reader);
     }
 
-    public void AdoptCurrent(AudioFileReader reader, ISampleProvider? sampleProvider = null)
+    public void AdoptCurrent(HubAudioReader reader, ISampleProvider? sampleProvider = null)
     {
-        AudioFileReader? outgoing = null;
-        AudioFileReader? outgoingNext = null;
+        HubAudioReader? outgoing = null;
+        HubAudioReader? outgoingNext = null;
         lock (_gate)
         {
             if (!ReferenceEquals(_current, reader))
@@ -65,7 +65,7 @@ public sealed class GaplessSampleProvider : ISampleProvider
             _next = null;
             _incomingReader = null;
             _incomingSamples = null;
-            _currentSamples = sampleProvider ?? AudioFileReaders.AsSamples(reader);
+            _currentSamples = sampleProvider ?? reader;
             WaveFormat = reader.WaveFormat;
         }
 
@@ -75,7 +75,7 @@ public sealed class GaplessSampleProvider : ISampleProvider
     /// <summary>
     /// Holds the incoming track during crossfade overlap. Outgoing keeps playing until CommitIncoming.
     /// </summary>
-    public void ReserveIncoming(AudioFileReader reader, ISampleProvider samples)
+    public void ReserveIncoming(HubAudioReader reader, ISampleProvider samples)
     {
         lock (_gate)
         {
@@ -89,7 +89,7 @@ public sealed class GaplessSampleProvider : ISampleProvider
     /// </summary>
     public void CommitIncoming()
     {
-        AudioFileReader? outgoing = null;
+        HubAudioReader? outgoing = null;
         lock (_gate)
         {
             if (_incomingReader is null || _incomingSamples is null)
@@ -111,7 +111,7 @@ public sealed class GaplessSampleProvider : ISampleProvider
             ThreadPool.QueueUserWorkItem(_ => outgoing.Dispose());
     }
 
-    public void PreloadNext(AudioFileReader reader)
+    public void PreloadNext(HubAudioReader reader)
     {
         lock (_gate)
         {
@@ -122,9 +122,9 @@ public sealed class GaplessSampleProvider : ISampleProvider
 
     public void Clear()
     {
-        AudioFileReader? outgoing = null;
-        AudioFileReader? outgoingNext = null;
-        AudioFileReader? outgoingIncoming = null;
+        HubAudioReader? outgoing = null;
+        HubAudioReader? outgoingNext = null;
+        HubAudioReader? outgoingIncoming = null;
         lock (_gate)
         {
             outgoing = _current;
@@ -143,7 +143,7 @@ public sealed class GaplessSampleProvider : ISampleProvider
     public int Read(float[] buffer, int offset, int count)
     {
         var advanced = false;
-        AudioFileReader? outgoing = null;
+        HubAudioReader? outgoing = null;
         int read;
         lock (_gate)
         {
@@ -164,7 +164,7 @@ public sealed class GaplessSampleProvider : ISampleProvider
 
             if (read < count && _next is not null && AutoAdvance)
             {
-                var nextProvider = AudioFileReaders.AsSamples(_next);
+                var nextProvider = _next;
                 if (nextProvider.WaveFormat.SampleRate != WaveFormat.SampleRate ||
                     nextProvider.WaveFormat.Channels != WaveFormat.Channels)
                 {
@@ -174,7 +174,7 @@ public sealed class GaplessSampleProvider : ISampleProvider
                 outgoing = _current;
                 _current = _next;
                 _next = null;
-                _currentSamples = AudioFileReaders.AsSamples(_current);
+                _currentSamples = _current;
                 WaveFormat = _current.WaveFormat;
                 advanced = true;
                 read += _currentSamples.Read(buffer, offset + read, count - read);
@@ -190,7 +190,7 @@ public sealed class GaplessSampleProvider : ISampleProvider
         return read;
     }
 
-    private static void DisposeReadersAsync(params AudioFileReader?[] readers)
+    private static void DisposeReadersAsync(params HubAudioReader?[] readers)
     {
         foreach (var reader in readers)
         {
@@ -199,6 +199,6 @@ public sealed class GaplessSampleProvider : ISampleProvider
         }
     }
 
-    private static bool ReaderAtEnd(AudioFileReader reader) =>
+    private static bool ReaderAtEnd(HubAudioReader reader) =>
         reader.Length > 0 && reader.Position >= reader.Length - reader.BlockAlign * 4;
 }

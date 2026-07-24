@@ -3,86 +3,17 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Smart playlist"
         Height="640" Width="700"
-        MinHeight="520" MinWidth="600"
+        MinHeight="480" MinWidth="560"
         Background="{DynamicResource HubBgBrush}"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize">
-    <Grid Margin="18">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
-        <StackPanel Grid.Row="0" Margin="0,0,0,12">
-            <TextBlock x:Name="TitleText" Text="New smart playlist" Style="{DynamicResource HubSectionTitle}" FontSize="18"/>
-            <TextBlock Style="{DynamicResource HubHintText}" Margin="0,4,0,0" TextWrapping="Wrap"
-                       Text="Build rules below. Matching tracks update automatically. Use Any (OR) when you want tracks from either of two albums."/>
+    <DockPanel Margin="18">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Cancel" Style="{DynamicResource HubToolbarButton}" IsCancel="True" Padding="14,8"/>
+            <Button Content="Save" Style="{DynamicResource HubPrimaryButton}" IsDefault="True" Padding="16,8" Click="Save_OnClick"/>
         </StackPanel>
 
-        <Border Grid.Row="1" Style="{DynamicResource HubCardBorder}" Padding="14" Margin="0,0,0,10">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="90"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="Name" Style="{DynamicResource HubSettingLabel}" VerticalAlignment="Center"/>
-                <TextBox x:Name="NameBox" Grid.Column="1" Style="{DynamicResource HubTextBox}"
-                         TextChanged="RuleChanged_OnTextChanged"/>
-                <TextBlock Grid.Row="1" Text="Match" Style="{DynamicResource HubSettingLabel}"
-                           VerticalAlignment="Center" Margin="0,10,0,0"/>
-                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0">
-                    <RadioButton x:Name="MatchAllRadio" Content="All rules (AND)" IsChecked="True"
-                                 Margin="0,0,16,0" Foreground="{DynamicResource HubTextPrimaryBrush}"
-                                 Checked="MatchMode_OnChanged"/>
-                    <RadioButton x:Name="MatchAnyRadio" Content="Any rule (OR)"
-                                 Foreground="{DynamicResource HubTextPrimaryBrush}"
-                                 Checked="MatchMode_OnChanged"/>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <Border Grid.Row="2" Style="{DynamicResource HubCardBorder}" Padding="14">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                    <TextBlock Text="Quick presets" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,8"/>
-                    <WrapPanel>
-                        <Button Content="★★★★+ rated" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
-                                Click="PresetHighlyRated_OnClick" ToolTip="Rating at least 4"/>
-                        <Button Content="Added last 30 days" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
-                                Click="PresetLast30_OnClick"/>
-                        <Button Content="Never played" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
-                                Click="PresetNeverPlayed_OnClick"/>
-                        <Button Content="Played recently" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
-                                Click="PresetRecentlyPlayed_OnClick" ToolTip="Played in the last 14 days"/>
-                    </WrapPanel>
-                    <Grid Margin="0,8,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140"/>
-                            <ColumnDefinition Width="130"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="40"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Field" Style="{DynamicResource HubHintText}"/>
-                        <TextBlock Grid.Column="1" Text="Operator" Style="{DynamicResource HubHintText}"/>
-                        <TextBlock Grid.Column="2" Text="Value (pick from your library when available)" Style="{DynamicResource HubHintText}"/>
-                    </Grid>
-                </StackPanel>
-                <Button DockPanel.Dock="Bottom" Content="+ Add rule" Style="{DynamicResource HubToolbarButton}"
-                        HorizontalAlignment="Left" Margin="0,10,0,0" Click="AddRule_OnClick"/>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
-                    <StackPanel x:Name="RulesPanel" Margin="0,0,8,0"/>
-                </ScrollViewer>
-            </DockPanel>
-        </Border>
-
-        <DockPanel Grid.Row="3" Margin="0,10,0,0">
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
             <Button x:Name="SwitchToOrButton" DockPanel.Dock="Right" Content="Switch to Any (OR)"
                     Style="{DynamicResource HubToolbarButton}" Padding="10,4" Margin="10,0,0,0"
                     Visibility="Collapsed" Click="SwitchToOr_OnClick"
@@ -92,9 +23,78 @@
                        Text="Matching tracks: —"/>
         </DockPanel>
 
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button Content="Cancel" Style="{DynamicResource HubToolbarButton}" IsCancel="True" Padding="14,8"/>
-            <Button Content="Save" Style="{DynamicResource HubPrimaryButton}" IsDefault="True" Padding="16,8" Click="Save_OnClick"/>
-        </StackPanel>
-    </Grid>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*" MinHeight="160"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Margin="0,0,0,12">
+                <TextBlock x:Name="TitleText" Text="New smart playlist" Style="{DynamicResource HubSectionTitle}" FontSize="18"/>
+                <TextBlock Style="{DynamicResource HubHintText}" Margin="0,4,0,0" TextWrapping="Wrap"
+                           Text="Build rules below. Matching tracks update automatically. Use Any (OR) when you want tracks from either of two albums."/>
+            </StackPanel>
+
+            <Border Grid.Row="1" Style="{DynamicResource HubCardBorder}" Padding="14" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Name" Style="{DynamicResource HubSettingLabel}" VerticalAlignment="Center"/>
+                    <TextBox x:Name="NameBox" Grid.Column="1" Style="{DynamicResource HubTextBox}"
+                             TextChanged="RuleChanged_OnTextChanged"/>
+                    <TextBlock Grid.Row="1" Text="Match" Style="{DynamicResource HubSettingLabel}"
+                               VerticalAlignment="Center" Margin="0,10,0,0"/>
+                    <WrapPanel Grid.Row="1" Grid.Column="1" Margin="0,10,0,0">
+                        <RadioButton x:Name="MatchAllRadio" Content="All rules (AND)" IsChecked="True"
+                                     Margin="0,0,16,4" Foreground="{DynamicResource HubTextPrimaryBrush}"
+                                     Checked="MatchMode_OnChanged"/>
+                        <RadioButton x:Name="MatchAnyRadio" Content="Any rule (OR)" Margin="0,0,0,4"
+                                     Foreground="{DynamicResource HubTextPrimaryBrush}"
+                                     Checked="MatchMode_OnChanged"/>
+                    </WrapPanel>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="2" Style="{DynamicResource HubCardBorder}" Padding="14">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                        <TextBlock Text="Quick presets" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,8"/>
+                        <WrapPanel>
+                            <Button Content="★★★★+ rated" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                    Click="PresetHighlyRated_OnClick" ToolTip="Rating at least 4"/>
+                            <Button Content="Added last 30 days" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                    Click="PresetLast30_OnClick"/>
+                            <Button Content="Never played" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                    Click="PresetNeverPlayed_OnClick"/>
+                            <Button Content="Played recently" Style="{DynamicResource HubToolbarButton}" Margin="0,0,6,6"
+                                    Click="PresetRecentlyPlayed_OnClick" ToolTip="Played in the last 14 days"/>
+                        </WrapPanel>
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="40"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Field" Style="{DynamicResource HubHintText}"/>
+                            <TextBlock Grid.Column="1" Text="Operator" Style="{DynamicResource HubHintText}"/>
+                            <TextBlock Grid.Column="2" Text="Value (pick from your library when available)" Style="{DynamicResource HubHintText}"/>
+                        </Grid>
+                    </StackPanel>
+                    <Button DockPanel.Dock="Bottom" Content="+ Add rule" Style="{DynamicResource HubToolbarButton}"
+                            HorizontalAlignment="Left" Margin="0,10,0,0" Click="AddRule_OnClick"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
+                        <StackPanel x:Name="RulesPanel" Margin="0,0,8,0"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
 </Window>

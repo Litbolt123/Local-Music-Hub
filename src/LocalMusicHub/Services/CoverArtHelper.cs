@@ -162,6 +162,7 @@ public static class CoverArtHelper
         WriteWithFileRetry(audioPath, () =>
         {
             using var file = TagLib.File.Create(audioPath);
+            StripId3IfXiphContainer(file, audioPath);
             var picture = new TagLib.Picture(new TagLib.ByteVector(jpegBytes))
             {
                 Type = TagLib.PictureType.FrontCover,
@@ -178,9 +179,23 @@ public static class CoverArtHelper
         WriteWithFileRetry(audioPath, () =>
         {
             using var file = TagLib.File.Create(audioPath);
+            StripId3IfXiphContainer(file, audioPath);
             file.Tag.Pictures = [];
             file.Save();
         });
+    }
+
+    private static void StripId3IfXiphContainer(TagLib.File file, string audioPath)
+    {
+        var ext = Path.GetExtension(audioPath);
+        if (!ext.Equals(".flac", StringComparison.OrdinalIgnoreCase) &&
+            !ext.Equals(".ogg", StringComparison.OrdinalIgnoreCase) &&
+            !ext.Equals(".oga", StringComparison.OrdinalIgnoreCase) &&
+            !ext.Equals(".opus", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        file.RemoveTags(TagLib.TagTypes.Id3v1 | TagLib.TagTypes.Id3v2);
+        _ = file.GetTag(TagLib.TagTypes.Xiph, create: true);
     }
 
     private static void WriteWithFileRetry(string audioPath, Action write, int attempts = 5)
@@ -260,50 +275,71 @@ public static class CoverArtHelper
         return scaled;
     }
 
-    /// <summary>2×2 mosaic from up to four cover blobs (playlist thumbnails).</summary>
+    /// <summary>2×2 mosaic from up to four cover blobs (playlist thumbnails). Must run on the UI thread.</summary>
     public static BitmapSource? BuildMosaic(IReadOnlyList<byte[]?> covers, int outputSize = 96)
     {
+        // Always decode to equal squares so DrawImage never squash-stretches art into tall strips.
+        var tileSize = Math.Max(8, outputSize / 2);
         var tiles = covers
             .Where(c => c is { Length: > 0 })
             .Take(4)
-            .Select(c => ToBitmap(c, outputSize / 2, centerCropSquare: true))
+            .Select(c => ToBitmap(c, tileSize, centerCropSquare: true))
             .Where(s => s is not null)
-            .Cast<BitmapSource>()
+            .Select(s => NormalizeTo96Dpi(s!))
             .ToList();
         if (tiles.Count == 0)
             return null;
         if (tiles.Count == 1)
             return ToBitmap(covers.First(c => c is { Length: > 0 }), outputSize, centerCropSquare: true);
 
+        // RenderTargetBitmap / DrawingVisual require the WPF UI thread.
+        if (System.Windows.Application.Current?.Dispatcher is { } dispatcher &&
+            !dispatcher.CheckAccess())
+        {
+            return dispatcher.Invoke(() => BuildMosaic(covers, outputSize));
+        }
+
         var size = outputSize;
         var half = size / 2;
+        // Pad to a full 2×2 so 2–3 covers still fill the square (no tall side-by-side strips).
+        var cell = tiles.Count switch
+        {
+            2 => new[] { tiles[0], tiles[1], tiles[0], tiles[1] },
+            3 => new[] { tiles[0], tiles[1], tiles[2], tiles[2] },
+            _ => new[] { tiles[0], tiles[1], tiles[2], tiles[3] },
+        };
+
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
-            switch (tiles.Count)
-            {
-                case 2:
-                    dc.DrawImage(tiles[0], new Rect(0, 0, half, size));
-                    dc.DrawImage(tiles[1], new Rect(half, 0, half, size));
-                    break;
-                case 3:
-                    dc.DrawImage(tiles[0], new Rect(0, 0, half, half));
-                    dc.DrawImage(tiles[1], new Rect(half, 0, half, half));
-                    dc.DrawImage(tiles[2], new Rect(0, half, size, half));
-                    break;
-                default:
-                    dc.DrawImage(tiles[0], new Rect(0, 0, half, half));
-                    dc.DrawImage(tiles[1], new Rect(half, 0, half, half));
-                    dc.DrawImage(tiles[2], new Rect(0, half, half, half));
-                    dc.DrawImage(tiles[3], new Rect(half, half, half, half));
-                    break;
-            }
+            dc.DrawImage(cell[0], new Rect(0, 0, half, half));
+            dc.DrawImage(cell[1], new Rect(half, 0, half, half));
+            dc.DrawImage(cell[2], new Rect(0, half, half, half));
+            dc.DrawImage(cell[3], new Rect(half, half, half, half));
         }
 
         var rtb = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(visual);
         rtb.Freeze();
         return rtb;
+    }
+
+    /// <summary>DrawImage uses DIPs; non-96 DPI bitmaps can render as thin strips inside the mosaic.</summary>
+    private static BitmapSource NormalizeTo96Dpi(BitmapSource source)
+    {
+        if (Math.Abs(source.DpiX - 96) < 0.5 && Math.Abs(source.DpiY - 96) < 0.5)
+            return source;
+
+        var width = source.PixelWidth;
+        var height = source.PixelHeight;
+        var stride = width * 4;
+        var pixels = new byte[stride * height];
+        var converted = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+        converted.CopyPixels(pixels, stride, 0);
+        var wb = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
+        wb.WritePixels(new Int32Rect(0, 0, width, height), pixels, stride, 0);
+        wb.Freeze();
+        return wb;
     }
 
     public static byte[]? EncodeMosaicPng(IReadOnlyList<byte[]?> covers, int outputSize = 96)

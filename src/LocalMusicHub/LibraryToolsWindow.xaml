@@ -57,6 +57,13 @@
                 </StackPanel>
             </Button>
             <Button Style="{DynamicResource HubToolbarButton}" Margin="0,0,0,8" Padding="14,16"
+                    HorizontalContentAlignment="Left" Click="FixWindowsDetails_OnClick">
+                <StackPanel>
+                    <TextBlock Text="Fix Windows Details" FontWeight="SemiBold"/>
+                    <TextBlock Text="Strip ID3 from FLAC/OGG" Style="{DynamicResource HubHintText}" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Button>
+            <Button Style="{DynamicResource HubToolbarButton}" Margin="0,0,8,8" Padding="14,16"
                     HorizontalContentAlignment="Left" Click="ScanLibrary_OnClick">
                 <StackPanel>
                     <TextBlock Text="Scan library" FontWeight="SemiBold"/>

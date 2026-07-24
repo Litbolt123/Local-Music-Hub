@@ -4,7 +4,7 @@ namespace LocalMusicHub.Services;
 
 public sealed class CrossfadeHandoffEventArgs : EventArgs
 {
-    public required AudioFileReader Reader { get; init; }
+    public required HubAudioReader Reader { get; init; }
     public required ISampleProvider SampleProvider { get; init; }
 }
 
@@ -12,13 +12,13 @@ public sealed class CrossfadeSampleProvider : ISampleProvider
 {
     private readonly ISampleProvider _source;
     private readonly int _crossfadeSeconds;
-    private AudioFileReader? _fadeInReader;
+    private HubAudioReader? _fadeInReader;
     private ISampleProvider? _fadeInSamples;
     private int _fadeSamplesRemaining;
     private int _fadeSamplesTotal;
     private Func<TimeSpan>? _getRemaining;
-    private Func<AudioFileReader?>? _acquireNextReader;
-    private Action<AudioFileReader, ISampleProvider>? _onIncomingReserved;
+    private Func<HubAudioReader?>? _acquireNextReader;
+    private Action<HubAudioReader, ISampleProvider>? _onIncomingReserved;
     private bool _handedOff;
     private CrossfadeHandoffEventArgs? _pendingHandoff;
 
@@ -39,15 +39,15 @@ public sealed class CrossfadeSampleProvider : ISampleProvider
 
     public void ConfigureTransition(
         Func<TimeSpan> getRemaining,
-        Func<AudioFileReader?> acquireNextReader,
-        Action<AudioFileReader, ISampleProvider>? onIncomingReserved = null)
+        Func<HubAudioReader?> acquireNextReader,
+        Action<HubAudioReader, ISampleProvider>? onIncomingReserved = null)
     {
         _getRemaining = getRemaining;
         _acquireNextReader = acquireNextReader;
         _onIncomingReserved = onIncomingReserved;
     }
 
-    public void BeginCrossfade(AudioFileReader nextReader)
+    public void BeginCrossfade(HubAudioReader nextReader)
     {
         var remaining = _getRemaining?.Invoke() ?? TimeSpan.FromSeconds(_crossfadeSeconds);
         var fadeSeconds = Math.Min(_crossfadeSeconds, Math.Max(remaining.TotalSeconds, 0));
@@ -55,13 +55,13 @@ public sealed class CrossfadeSampleProvider : ISampleProvider
         BeginCrossfade(nextReader, fadeSamples);
     }
 
-    private void BeginCrossfade(AudioFileReader nextReader, int fadeSamples)
+    private void BeginCrossfade(HubAudioReader nextReader, int fadeSamples)
     {
         if (!_handedOff)
             _fadeInReader?.Dispose();
         _handedOff = false;
         _fadeInReader = nextReader;
-        _fadeInSamples = AudioFileReaders.AsSamples(nextReader);
+        _fadeInSamples = nextReader;
         _fadeSamplesTotal = Math.Max(WaveFormat.Channels, fadeSamples);
         _fadeSamplesRemaining = _fadeSamplesTotal;
         _onIncomingReserved?.Invoke(nextReader, _fadeInSamples);

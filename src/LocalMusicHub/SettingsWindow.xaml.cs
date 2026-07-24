@@ -266,6 +266,19 @@ public partial class SettingsWindow
         return $"Linked — extension API on port {status.ExtensionPort}. Use the sidebar to paste a URL and download.";
     }
 
+    private string ResolveOutputBackend()
+    {
+        var backend = SelectedTag(OutputBackendBox) ?? "wasapi";
+        var deviceId = SelectedTag(OutputDeviceBox);
+        if (!string.IsNullOrWhiteSpace(deviceId)
+            && !string.Equals(deviceId, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            return "wasapi";
+        }
+
+        return backend;
+    }
+
     private void PopulateOutputDevices()
     {
         OutputDeviceBox.Items.Clear();
@@ -442,7 +455,7 @@ public partial class SettingsWindow
             NotifyOnTrackChange = NotifyOnTrackChangeBox.IsChecked == true,
             DefaultVolume = DefaultVolumeSlider.Value,
             PlaybackSpeed = PlaybackSpeedSlider.Value,
-            OutputBackend = SelectedTag(OutputBackendBox) ?? "waveout",
+            OutputBackend = ResolveOutputBackend(),
             OutputDeviceId = SelectedTag(OutputDeviceBox) is "default" ? null : SelectedTag(OutputDeviceBox),
             ReplayGainMode = SelectedTag(ReplayGainBox) ?? "off",
             EqPreset = SelectedTag(EqPresetBox) ?? "flat",
@@ -485,32 +498,41 @@ public partial class SettingsWindow
 
     private async void CheckUpdates_OnClick(object sender, RoutedEventArgs e)
     {
-        UpdateStatusText.Text = "Checking GitHub…";
-        DownloadInstallerButton.IsEnabled = false;
+        InstallerUpgradePanel.Visibility = Visibility.Collapsed;
+        UpdateStatusText.Text = "Checking GitHub Releases…";
         _lastCheck = await UpdateCheckService.CheckLatestReleaseAsync();
-
-        if (!_lastCheck.Success)
-        {
-            UpdateStatusText.Text = _lastCheck.ErrorMessage ?? "Check failed.";
-            return;
-        }
 
         if (_lastCheck.NoPublishedReleases)
         {
-            UpdateStatusText.Text = "No published releases yet on GitHub.";
+            UpdateStatusText.Text =
+                "No published release on GitHub yet (the Releases page may be empty until the first installer is uploaded). " +
+                "Use “Releases page” to check in your browser.";
+            return;
+        }
+
+        if (!_lastCheck.Success)
+        {
+            UpdateStatusText.Text = "Could not check for updates: " + (_lastCheck.ErrorMessage ?? "unknown error");
             return;
         }
 
         if (_lastCheck.IsNewerThanCurrent)
         {
-            UpdateStatusText.Text = $"Newer version available: {_lastCheck.LatestVersion} (you have {App.VersionDisplay}).";
-            DownloadInstallerButton.IsEnabled = !string.IsNullOrWhiteSpace(_lastCheck.InstallerDownloadUrl);
             UpdateAvailabilityCache.Set(_lastCheck.LatestVersion, _lastCheck.InstallerDownloadUrl);
+            UpdateStatusText.Text =
+                $"A newer release is available on GitHub (release {_lastCheck.LatestVersion}, this app {App.VersionDisplay}). " +
+                (string.IsNullOrWhiteSpace(_lastCheck.InstallerDownloadUrl)
+                    ? "No installer file was attached to that release — use Releases page to download manually."
+                    : "Use “Download and run installer…” below, or open the Releases page in your browser.");
+
+            if (!string.IsNullOrWhiteSpace(_lastCheck.InstallerDownloadUrl))
+                InstallerUpgradePanel.Visibility = Visibility.Visible;
         }
         else
         {
-            UpdateStatusText.Text = $"You are up to date ({App.VersionDisplay}).";
             UpdateAvailabilityCache.Clear();
+            UpdateStatusText.Text =
+                $"You are up to date with the highest published installer we found ({_lastCheck.LatestVersion}).";
         }
 
         App.Settings.LastUpdateCheckUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
@@ -519,36 +541,25 @@ public partial class SettingsWindow
 
     private async void DownloadInstaller_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_lastCheck?.InstallerDownloadUrl is not { } url)
-        {
-            UpdateCheckService.OpenUpdateDownload(null);
-            return;
-        }
-
-        UpdateStatusText.Text = "Downloading installer…";
         DownloadInstallerButton.IsEnabled = false;
-        var (path, error) = await UpdateCheckService.DownloadInstallerToTempAsync(url, _lastCheck.LatestVersion);
-        if (path is null)
-        {
-            UpdateStatusText.Text = error ?? "Download failed.";
-            DownloadInstallerButton.IsEnabled = true;
-            return;
-        }
-
         try
         {
-            Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
-            UpdateStatusText.Text = "Installer started.";
+            await InstallerUpgrade.RunAsync(
+                this,
+                _lastCheck?.InstallerDownloadUrl ?? UpdateAvailabilityCache.InstallerDownloadUrl,
+                _lastCheck?.LatestVersion ?? UpdateAvailabilityCache.PendingVersion,
+                status => UpdateStatusText.Text = status).ConfigureAwait(true);
         }
-        catch (Exception ex)
+        finally
         {
-            UpdateStatusText.Text = ex.Message;
-            DownloadInstallerButton.IsEnabled = true;
+            // If we quit for upgrade, this window is gone; otherwise re-enable.
+            if (IsLoaded)
+                DownloadInstallerButton.IsEnabled = true;
         }
     }
 
     private void OpenReleases_OnClick(object sender, RoutedEventArgs e) =>
-        UpdateCheckService.OpenUpdateDownload(null);
+        UpdateCheckService.OpenReleasesInBrowser();
 
     private void Save_OnClick(object sender, RoutedEventArgs e)
     {

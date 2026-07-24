@@ -823,5 +823,5 @@ Shipped full plan except DLNA/Cast:
 ## 2026-07-24 — Publishing v0.13.21
 
 - **User:** Volume fixed — publish.
-- **Plan:** Commit volume/UI work, tag `v0.13.21`, CI builds `LocalMusicHub-Setup-0.13.21.exe`.
+- **Shipped:** https://github.com/Litbolt123/Local-Music-Hub/releases/tag/v0.13.21 — **`LocalMusicHub-Setup-0.13.21.exe`** (latest).
 

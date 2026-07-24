@@ -50,18 +50,22 @@ public partial class MiniPlayerWindow
         SetPlayPauseIcons(_playback.IsPlaying);
         CoverImage.Source = _getCover();
 
-        if (!_suppressVolumeSlider)
-        {
-            _suppressVolumeSlider = true;
-            VolumeSlider.Value = _playback.Volume;
-            _suppressVolumeSlider = false;
-        }
+        SyncVolumeFromPlayback();
 
         UpdatePositionUi();
         if (_playback.IsPlaying && !_playback.IsPaused)
             _positionTimer.Start();
         else
             _positionTimer.Stop();
+    }
+
+    public void SyncVolumeFromPlayback()
+    {
+        if (_suppressVolumeSlider)
+            return;
+        _suppressVolumeSlider = true;
+        VolumeSlider.Value = _playback.Volume;
+        _suppressVolumeSlider = false;
     }
 
     private void OnThemeChanged(object? sender, EventArgs e) => Refresh();
@@ -117,6 +121,8 @@ public partial class MiniPlayerWindow
         if (_suppressVolumeSlider)
             return;
         _playback.SetVolume(VolumeSlider.Value);
+        if (Owner is MainWindow main)
+            main.SyncVolumeSliderFromPlayback();
     }
 
     private void PositionSlider_OnPreviewMouseDown(object sender, MouseButtonEventArgs e) => _positionScrubbing = true;

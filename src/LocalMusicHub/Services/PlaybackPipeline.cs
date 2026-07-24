@@ -35,7 +35,11 @@ public static class PlaybackPipeline
 
         var gainDb = ResolveReplayGainDb(track, settings.ReplayGainMode);
         var linearGain = (float)Math.Pow(10, gainDb / 20.0);
-        var volume = new SmoothVolumeSampleProvider(eq) { Volume = linearGain * (float)settings.DefaultVolume };
+        var volume = new SmoothVolumeSampleProvider(eq)
+        {
+            Volume = linearGain,
+            MasterVolume = (float)Math.Clamp(settings.DefaultVolume, 0, 1),
+        };
         var speed = new SpeedSampleProvider(volume)
         {
             Speed = (float)Math.Clamp(settings.PlaybackSpeed, 0.5, 2.0),

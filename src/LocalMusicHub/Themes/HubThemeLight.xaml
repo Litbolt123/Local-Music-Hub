@@ -3,6 +3,7 @@
                     xmlns:local="clr-namespace:LocalMusicHub">
 
     <local:SliderNearMaxConverter x:Key="SliderNearMaxConverter"/>
+    <local:SliderFillWidthConverter x:Key="SliderFillWidthConverter"/>
     <Color x:Key="HubBgColor">#F6F6F6</Color>
     <Color x:Key="HubCardColor">#FFFFFF</Color>
     <Color x:Key="HubBorderColor">#E6E6E6</Color>
@@ -302,11 +303,22 @@
 
     <ControlTemplate x:Key="HubSliderHorizontalAutoThumb" TargetType="Slider">
         <Grid x:Name="Root" VerticalAlignment="Center" Height="20" Background="Transparent">
-            <Border x:Name="TrackBg" Height="4" CornerRadius="2" Background="{DynamicResource HubSliderTrackBrush}"
+            <Border Height="4" CornerRadius="2" Background="{DynamicResource HubSliderTrackBrush}"
                     VerticalAlignment="Center"/>
+            <Border Height="4" CornerRadius="2" Background="{DynamicResource HubSliderFillBrush}"
+                    VerticalAlignment="Center" HorizontalAlignment="Left">
+                <Border.Width>
+                    <MultiBinding Converter="{StaticResource SliderFillWidthConverter}">
+                        <Binding ElementName="Root" Path="ActualWidth"/>
+                        <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Value"/>
+                        <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Minimum"/>
+                        <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Maximum"/>
+                    </MultiBinding>
+                </Border.Width>
+            </Border>
             <Track x:Name="PART_Track" VerticalAlignment="Center">
                 <Track.DecreaseRepeatButton>
-                    <RepeatButton Style="{StaticResource HubSliderDecrease}" Command="Slider.DecreaseLarge"/>
+                    <RepeatButton Style="{StaticResource HubSliderRepeatTransparent}" Command="Slider.DecreaseLarge"/>
                 </Track.DecreaseRepeatButton>
                 <Track.Thumb>
                     <Thumb x:Name="Thumb" Style="{StaticResource HubSliderThumbAuto}"/>
@@ -323,9 +335,6 @@
             <Trigger SourceName="Thumb" Property="IsDragging" Value="True">
                 <Setter TargetName="Thumb" Property="Opacity" Value="1"/>
             </Trigger>
-            <DataTrigger Binding="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource SliderNearMaxConverter}}" Value="True">
-                <Setter TargetName="TrackBg" Property="Background" Value="{DynamicResource HubSliderFillBrush}"/>
-            </DataTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 

@@ -475,8 +475,10 @@ public sealed class PlaybackService : IDisposable
     {
         _volume = Math.Clamp(volume, 0, 1);
         App.Settings.DefaultVolume = _volume;
-        ApplyLiveVolume();
-        RaiseState();
+        if (_volumeProvider is not null)
+            _volumeProvider.MasterVolume = (float)_volume;
+        // Keep device volume at unity — Wasapi endpoint volume buzzes when scrubbed.
+        ApplyUnityOutputVolume();
     }
 
     public void ReloadOutputSettings()
@@ -537,6 +539,9 @@ public sealed class PlaybackService : IDisposable
         _output = AudioOutputFactory.Create(settings.OutputBackend, settings.OutputDeviceId);
         _output.PlaybackStopped += Output_OnPlaybackStopped;
         _output.Init(_sampleProvider);
+        ApplyUnityOutputVolume();
+        if (_volumeProvider is not null)
+            _volumeProvider.MasterVolume = (float)_volume;
     }
 
     public (bool WasActive, bool WasPlaying, TimeSpan Position)? ReleaseCurrentFileIfMatches(string path)
@@ -781,7 +786,7 @@ public sealed class PlaybackService : IDisposable
         var fadeSeconds = Math.Min(App.Settings.CrossfadeSeconds, Math.Max(remaining.TotalSeconds, 0.1));
         var sampleRate = _reader?.WaveFormat.SampleRate ?? 44100;
         var rampFrames = Math.Max(1, (int)(fadeSeconds * sampleRate));
-        _volumeProvider.RampTo(_replayGainLinear * (float)_volume, rampFrames);
+        _volumeProvider.RampTo(_replayGainLinear, rampFrames);
     }
 
     private void Gapless_OnTrackAdvanced(object? sender, EventArgs e) => AdvanceGaplessTrack();
@@ -1050,14 +1055,30 @@ public sealed class PlaybackService : IDisposable
 
         var gainDb = PlaybackPipeline.ResolveReplayGainDb(track, App.Settings.ReplayGainMode);
         _replayGainLinear = (float)Math.Pow(10, gainDb / 20.0);
-        ApplyLiveVolume();
+        if (_volumeProvider is not null)
+            _volumeProvider.Volume = _replayGainLinear;
     }
 
     private void ApplyLiveVolume()
     {
-        if (_volumeProvider is null)
+        ApplyReplayGainForCurrentTrack();
+        if (_volumeProvider is not null)
+            _volumeProvider.MasterVolume = (float)_volume;
+        ApplyUnityOutputVolume();
+    }
+
+    private void ApplyUnityOutputVolume()
+    {
+        if (_output is null)
             return;
-        _volumeProvider.Volume = _replayGainLinear * (float)_volume;
+        try
+        {
+            _output.Volume = 1f;
+        }
+        catch
+        {
+            /* ignore */
+        }
     }
 
     private void RaiseState() => StateChanged?.Invoke(this, EventArgs.Empty);

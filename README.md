@@ -4,11 +4,11 @@ A local-first music library and player for Windows — built to pair with **YouT
 
 **License:** [Apache License 2.0](LICENSE)
 
-**Current version: 0.13.17**
+**Current version: 0.13.21**
 
 ## Install (friends)
 
-1. Download **`LocalMusicHub-Setup-0.13.17.exe`** from [GitHub Releases](https://github.com/Litbolt123/Local-Music-Hub/releases) (once published).
+1. Download **`LocalMusicHub-Setup-0.13.21.exe`** from [GitHub Releases](https://github.com/Litbolt123/Local-Music-Hub/releases) (once published).
 2. Run the installer — no .NET install required (self-contained).
 3. Optional but recommended: install **YouTube Downloader** from [its releases](https://github.com/Litbolt123/YouTube-to-MP3/releases) for downloading music into your library.
 
@@ -49,8 +49,8 @@ Installer output: `installer\Output\LocalMusicHub-Setup-<version>.exe`
 See `docs/releasing.md`. Short version: bump `Directory.Build.props`, edit `docs/RELEASE_BODY.md`, commit, then:
 
 ```powershell
-git tag v0.13.17
-git push origin v0.13.17
+git tag v0.13.21
+git push origin v0.13.21
 ```
 
 ## Data locations

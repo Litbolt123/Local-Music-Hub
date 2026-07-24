@@ -797,3 +797,31 @@ Shipped full plan except DLNA/Cast:
 - **Fix:** `.iss` only includes `version.inc` when `AppVersion` is undefined; CI regenerates `version.inc` and asserts `Output\LocalMusicHub-Setup-<ver>.exe`. Deleted broken release/tag and republished.
 - **Shipped:** https://github.com/Litbolt123/Local-Music-Hub/releases/tag/v0.13.17 — asset **`LocalMusicHub-Setup-0.13.17.exe`** (~65 MB), marked latest.
 
+## 2026-07-24 — Instant volume without static (v0.13.18)
+
+- **User:** Volume slider must change instantly with no static.
+- **Cause:** `SetVolume` raised `StateChanged` every tick → `RefreshNowPlaying` / Discord / mini refresh flooded the UI and starved audio (crackle).
+- **Fix:** `VolumeChanged` for light slider/mute sync only; ~1.5 ms exponential live gain; `RampTo` kept for crossfade ReplayGain. Synced **0.13.18**.
+
+## 2026-07-24 — Spotify-like volume (v0.13.19)
+
+- **User:** Still static, not instantaneous (no fade wanted); volume bar not full at 100%.
+- **Fix:** User volume via `IWavePlayer.Volume` (Windows mixer) — instant, no PCM fade/zipper. Sample chain keeps ReplayGain only. Volume bar fill = `ActualWidth × Value` so 100% is edge-to-edge. Synced **0.13.19**.
+
+## 2026-07-24 — Volume buzz still present (v0.13.20)
+
+- **User:** Instant OK; buzz/static when changing volume remains.
+- **Cause:** Wasapi endpoint `IWavePlayer.Volume` thrash while scrubbing.
+- **Fix:** Master volume in sample chain again; snap at zero-crossing/near-silence (no fade). Device volume fixed at 1.0. Synced **0.13.20**.
+
+## 2026-07-24 — Volume ticking (v0.13.21)
+
+- **User:** No buzz, but ticking when changing volume.
+- **Cause:** Hard zero-crossing gain snaps.
+- **Fix:** ~1.5 ms audio-thread master dezipper (instant feel, no audible fade). Synced **0.13.21**.
+
+## 2026-07-24 — Publishing v0.13.21
+
+- **User:** Volume fixed — publish.
+- **Plan:** Commit volume/UI work, tag `v0.13.21`, CI builds `LocalMusicHub-Setup-0.13.21.exe`.
+

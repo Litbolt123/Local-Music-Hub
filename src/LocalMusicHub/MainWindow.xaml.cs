@@ -3294,6 +3294,17 @@ public partial class MainWindow
         _muted = false;
         Playback.SetVolume(VolumeSlider.Value);
         UpdateMuteChrome();
+        _miniPlayer?.SyncVolumeFromPlayback();
+    }
+
+    public void SyncVolumeSliderFromPlayback()
+    {
+        if (VolumeSlider is null)
+            return;
+        _suppressVolumeSlider = true;
+        VolumeSlider.Value = Playback.Volume;
+        _suppressVolumeSlider = false;
+        UpdateMuteChrome();
     }
 
     private void SyncSpeedComboFromSettings()
@@ -3356,6 +3367,7 @@ public partial class MainWindow
         }
 
         UpdateMuteChrome();
+        _miniPlayer?.SyncVolumeFromPlayback();
     }
 
     private void AdjustVolume(double delta)
@@ -3368,6 +3380,7 @@ public partial class MainWindow
             VolumeSlider.Value = next;
         _suppressVolumeSlider = false;
         UpdateMuteChrome();
+        _miniPlayer?.SyncVolumeFromPlayback();
     }
 
     private void UpdateMuteChrome()

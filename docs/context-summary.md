@@ -793,5 +793,7 @@ Shipped full plan except DLNA/Cast:
 ## 2026-07-24 — Publishing v0.13.17 GitHub Release
 
 - **User:** Publish a real release.
-- **Plan:** Fold UNRELEASED into `RELEASE_BODY.md`, commit all 0.13.1–0.13.17 work, push `main`, tag `v0.13.17`, let `release-windows.yml` build `LocalMusicHub-Setup-0.13.17.exe`.
+- **First CI attempt:** Tag/notes OK but asset was still `LocalMusicHub-Setup-0.11.6.exe` — committed `installer/version.inc` (`#define AppVersion "0.11.6"`) was included before `/DAppVersion`, so Inno ignored CI’s version.
+- **Fix:** `.iss` only includes `version.inc` when `AppVersion` is undefined; CI regenerates `version.inc` and asserts `Output\LocalMusicHub-Setup-<ver>.exe`. Deleted broken release/tag and republished.
+- **Shipped:** https://github.com/Litbolt123/Local-Music-Hub/releases/tag/v0.13.17 — asset **`LocalMusicHub-Setup-0.13.17.exe`** (~65 MB), marked latest.
 

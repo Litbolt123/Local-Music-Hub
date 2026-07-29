@@ -176,6 +176,7 @@ public partial class MainWindow
             RefreshQueueList();
             UpdateDiscordPresence();
             NotifyTrayTrackChanged();
+            NowPlayingStateService.Write(Playback.CurrentTrack, Playback.IsPlaying, Playback.IsPaused);
             if (_lyricsWindow is { IsLoaded: true } && Playback.CurrentTrack is { } current)
                 _lyricsWindow.ShowTrack(current);
             _miniPlayer?.Refresh();
@@ -184,6 +185,7 @@ public partial class MainWindow
         {
             RefreshNowPlaying();
             UpdateDiscordPresence();
+            NowPlayingStateService.Write(Playback.CurrentTrack, Playback.IsPlaying, Playback.IsPaused);
             _miniPlayer?.Refresh();
         });
         _playbackService.QueueChanged += (_, _) => Dispatcher.BeginInvoke(RefreshQueueList);

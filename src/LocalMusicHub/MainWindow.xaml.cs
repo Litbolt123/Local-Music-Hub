@@ -260,18 +260,16 @@ public partial class MainWindow
 
         if (e.Key == Key.MediaPlayPause)
         {
-            if (Playback.CurrentTrack is not null)
-            {
-                Playback.TogglePlayPause();
-                RefreshNowPlaying();
-                e.Handled = true;
-            }
+            HandleMediaPlayPause();
+            e.Handled = true;
             return;
         }
 
         if (e.Key == Key.MediaNextTrack)
         {
             Playback.Next();
+            RefreshNowPlaying();
+            UpdatePlayPauseChrome();
             e.Handled = true;
             return;
         }
@@ -279,6 +277,8 @@ public partial class MainWindow
         if (e.Key == Key.MediaPreviousTrack)
         {
             Playback.Previous();
+            RefreshNowPlaying();
+            UpdatePlayPauseChrome();
             e.Handled = true;
             return;
         }
@@ -374,19 +374,24 @@ public partial class MainWindow
             });
         _sleepTimer.Changed += (_, _) => Dispatcher.Invoke(UpdateSleepTimerChrome);
         _mediaKeys = new GlobalMediaKeyService(this);
-        _mediaKeys.PlayPauseRequested += () => Dispatcher.Invoke(() =>
+        _mediaKeys.PlayPauseRequested += () => Dispatcher.Invoke(HandleMediaPlayPause);
+        _mediaKeys.NextRequested += () => Dispatcher.Invoke(() =>
         {
-            if (Playback.CurrentTrack is null)
-                return;
-            Playback.TogglePlayPause();
+            Playback.Next();
             RefreshNowPlaying();
+            UpdatePlayPauseChrome();
         });
-        _mediaKeys.NextRequested += () => Dispatcher.Invoke(() => Playback.Next());
-        _mediaKeys.PreviousRequested += () => Dispatcher.Invoke(() => Playback.Previous());
+        _mediaKeys.PreviousRequested += () => Dispatcher.Invoke(() =>
+        {
+            Playback.Previous();
+            RefreshNowPlaying();
+            UpdatePlayPauseChrome();
+        });
         _mediaKeys.StopRequested += () => Dispatcher.Invoke(() =>
         {
             Playback.Pause();
             RefreshNowPlaying();
+            UpdatePlayPauseChrome();
         });
         _mediaKeys.MuteRequested += () => Dispatcher.Invoke(() => Mute_OnClick(this, new RoutedEventArgs()));
         _mediaKeys.VolumeUpRequested += () => Dispatcher.Invoke(() => AdjustVolume(+0.05));
@@ -4216,7 +4221,12 @@ public partial class MainWindow
     private void QueueClear_OnClick(object sender, RoutedEventArgs e) =>
         Playback.ClearQueue(stopPlayback: false);
 
-    private void PlayPause_OnClick(object sender, RoutedEventArgs e)
+    private void PlayPause_OnClick(object sender, RoutedEventArgs e) => HandleMediaPlayPause();
+
+    /// <summary>
+    /// Toolbar / keyboard / global media Play-Pause. Starts current selection when idle.
+    /// </summary>
+    private void HandleMediaPlayPause()
     {
         if (Playback.CurrentTrack is null || Playback.Queue.Count == 0)
         {

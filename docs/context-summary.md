@@ -838,3 +838,15 @@ Shipped full plan except DLNA/Cast:
 - **User:** Publish with release notes for the update.
 - **Notes:** Global media Play/Pause/Next/Prev/Stop via RegisterHotKey.
 - **Ship:** tag `v0.13.22` ? CI Windows installer release.
+- **Shipped:** https://github.com/Litbolt123/Local-Music-Hub/releases/tag/v0.13.22 ? **`LocalMusicHub-Setup-0.13.22.exe`** (latest).
+
+## 2026-08-02 — Windows Now Playing / SMTC (v0.13.23)
+
+- **User:** Add the Windows Quick Settings Now Playing card for LMH (like Comet).
+- **Impl:** `SystemMediaTransportControlsService` via `SystemMediaTransportControlsInterop.GetForWindow` — title/artist/album/cover, Play/Pause/Next/Prev/Stop, timeline + seek. Wired from playback TrackChanged/StateChanged + position timer.
+- **Build:** Synced **0.13.23** to Programs folder (after closing running EXE).
+
+## 2026-08-02 — Publishing v0.13.23
+
+- **User:** Publish with changelog (Windows Now Playing / SMTC works).
+- **Ship:** tag `v0.13.23` ? CI Windows installer release.

@@ -175,6 +175,7 @@ public partial class MainWindow
             RefreshNowPlaying();
             RefreshQueueList();
             UpdateDiscordPresence();
+            UpdateSystemMediaTransportControls();
             NotifyTrayTrackChanged();
             NowPlayingStateService.Write(Playback.CurrentTrack, Playback.IsPlaying, Playback.IsPaused);
             if (_lyricsWindow is { IsLoaded: true } && Playback.CurrentTrack is { } current)
@@ -185,6 +186,7 @@ public partial class MainWindow
         {
             RefreshNowPlaying();
             UpdateDiscordPresence();
+            UpdateSystemMediaTransportControls();
             NowPlayingStateService.Write(Playback.CurrentTrack, Playback.IsPlaying, Playback.IsPaused);
             _miniPlayer?.Refresh();
         });
@@ -276,6 +278,7 @@ public partial class MainWindow
     {
         _sleepTimer?.Dispose();
         _mediaKeys?.Dispose();
+        _smtc?.Dispose();
         _lyricsPrefetchService?.Dispose();
         _discordService?.Dispose();
         _playbackService?.Dispose();

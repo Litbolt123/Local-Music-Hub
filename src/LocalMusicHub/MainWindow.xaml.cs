@@ -17,6 +17,7 @@ public partial class MainWindow
 {
     private SleepTimerService? _sleepTimer;
     private GlobalMediaKeyService? _mediaKeys;
+    private SystemMediaTransportControlsService? _smtc;
     private MiniPlayerWindow? _miniPlayer;
     private readonly DispatcherTimer _positionTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly DispatcherTimer _searchDebounceTimer;
@@ -396,6 +397,50 @@ public partial class MainWindow
         _mediaKeys.MuteRequested += () => Dispatcher.Invoke(() => Mute_OnClick(this, new RoutedEventArgs()));
         _mediaKeys.VolumeUpRequested += () => Dispatcher.Invoke(() => AdjustVolume(+0.05));
         _mediaKeys.VolumeDownRequested += () => Dispatcher.Invoke(() => AdjustVolume(-0.05));
+
+        _smtc = new SystemMediaTransportControlsService(this);
+        _smtc.EnsureAttached();
+        _smtc.PlayRequested += () => Dispatcher.Invoke(() =>
+        {
+            if (Playback.CurrentTrack is null || Playback.Queue.Count == 0)
+                HandleMediaPlayPause();
+            else
+            {
+                Playback.Play();
+                RefreshNowPlaying();
+                UpdatePlayPauseChrome();
+            }
+        });
+        _smtc.PauseRequested += () => Dispatcher.Invoke(() =>
+        {
+            Playback.Pause();
+            RefreshNowPlaying();
+            UpdatePlayPauseChrome();
+        });
+        _smtc.NextRequested += () => Dispatcher.Invoke(() =>
+        {
+            Playback.Next();
+            RefreshNowPlaying();
+            UpdatePlayPauseChrome();
+        });
+        _smtc.PreviousRequested += () => Dispatcher.Invoke(() =>
+        {
+            Playback.Previous();
+            RefreshNowPlaying();
+            UpdatePlayPauseChrome();
+        });
+        _smtc.StopRequested += () => Dispatcher.Invoke(() =>
+        {
+            Playback.Pause();
+            RefreshNowPlaying();
+            UpdatePlayPauseChrome();
+        });
+        _smtc.SeekRequested += pos => Dispatcher.Invoke(() =>
+        {
+            Playback.Seek(pos);
+            RefreshNowPlaying();
+        });
+        UpdateSystemMediaTransportControls();
         ApplyDownloaderSidebarLayout();
         RefreshDownloaderStatus();
         ApplyLibraryIngestHost();
@@ -4610,6 +4655,8 @@ public partial class MainWindow
             Playback.Position,
             Playback.Duration,
             App.Settings);
+
+        _smtc?.UpdateTimeline(Playback.Position, Playback.Duration);
     }
 
     private void UpdateDiscordPresence()
@@ -4618,6 +4665,19 @@ public partial class MainWindow
             return;
 
         Discord.Update(Playback.CurrentTrack, Playback.IsPlaying);
+    }
+
+    private void UpdateSystemMediaTransportControls()
+    {
+        if (_smtc is null || _playbackService is null)
+            return;
+
+        _smtc.Update(
+            Playback.CurrentTrack,
+            Playback.IsPlaying,
+            Playback.IsPaused,
+            Playback.Position,
+            Playback.Duration);
     }
 
     private void RefreshNowPlaying()

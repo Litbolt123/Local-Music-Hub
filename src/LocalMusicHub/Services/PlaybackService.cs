@@ -536,9 +536,12 @@ public sealed class PlaybackService : IDisposable
         }
 
         var settings = App.Settings;
-        _output = AudioOutputFactory.Create(settings.OutputBackend, settings.OutputDeviceId);
+        _output = AudioOutputFactory.Create(
+            settings.OutputBackend,
+            settings.OutputDeviceId,
+            settings.OutputLatencyMs);
         _output.PlaybackStopped += Output_OnPlaybackStopped;
-        _output.Init(_sampleProvider);
+        _output.Init(new FullBufferSampleProvider(_sampleProvider));
         ApplyUnityOutputVolume();
         if (_volumeProvider is not null)
             _volumeProvider.MasterVolume = (float)_volume;

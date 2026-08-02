@@ -7,6 +7,7 @@ public sealed class EqualizerSampleProvider : ISampleProvider
 {
     private readonly ISampleProvider _source;
     private readonly BiQuadFilter[] _filters;
+    private bool _bypass = true;
 
     public EqualizerSampleProvider(ISampleProvider source, int bandCount = 10)
     {
@@ -24,22 +25,36 @@ public sealed class EqualizerSampleProvider : ISampleProvider
     {
         var sampleRate = WaveFormat.SampleRate;
         var frequencies = EqPresets.Frequencies;
+        var anyGain = false;
         for (var i = 0; i < _filters.Length; i++)
         {
             var freq = frequencies[Math.Min(i, frequencies.Length - 1)];
             var gain = i < bandGainsDb.Count ? bandGainsDb[i] : 0f;
+            if (Math.Abs(gain) >= 0.05f)
+                anyGain = true;
             _filters[i] = BiQuadFilter.PeakingEQ(sampleRate, freq, 1.0f, gain);
         }
+
+        // Flat EQ: skip the IIR chain (avoids denormal CPU spikes that underrun Bluetooth).
+        _bypass = !anyGain;
     }
 
     public int Read(float[] buffer, int offset, int count)
     {
         var read = _source.Read(buffer, offset, count);
+        if (_bypass || read == 0)
+            return read;
+
         for (var n = 0; n < read; n++)
         {
             var sample = buffer[offset + n];
             foreach (var filter in _filters)
                 sample = filter.Transform(sample);
+
+            // Flush denormals — quiet passages can otherwise spike CPU and click.
+            if (sample is > -1e-15f and < 1e-15f)
+                sample = 0f;
+
             buffer[offset + n] = sample;
         }
 

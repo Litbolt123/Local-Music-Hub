@@ -1,8 +1,9 @@
-## Local Music Hub 0.13.23
+## Local Music Hub 0.13.24
 
-### Windows Now Playing
-- Local Music Hub appears in the **Windows Quick Settings / lock-screen media card**.
-- Shows **title**, **artist**, **album**, and **cover art**.
-- **Play/Pause**, **Next**, **Previous**, **Stop**, and **seek** from the system media controls.
+### Audio clicks / zzzt (Bluetooth-friendly)
+- Fixed random mid-song **clicks / zzzt** sounds — especially on wireless headphones (e.g. AirPods).
+- WASAPI now uses **event-driven** refill with a larger default buffer (**300 ms**).
+- Settings → **Audio buffer** includes **Bluetooth (500 ms)** if you still hear glitches on wireless.
+- Short decoder reads no longer underrun the output; flat EQ no longer runs unnecessary filters.
 
-Install **`LocalMusicHub-Setup-0.13.23.exe`** from this release. Your library under `%LocalAppData%\LocalMusicHub\` is kept.
+Install **`LocalMusicHub-Setup-0.13.24.exe`** from this release. Your library under `%LocalAppData%\LocalMusicHub\` is kept.

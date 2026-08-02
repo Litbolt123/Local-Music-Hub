@@ -79,6 +79,14 @@
                     <ComboBox x:Name="OutputDeviceBox" Margin="0,0,0,4" MinHeight="28"/>
                     <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,8" TextWrapping="Wrap"
                                Text="Per-device routing uses WASAPI. Pick System default to follow Windows, or choose a specific device."/>
+                    <TextBlock Text="Audio buffer" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="OutputLatencyBox" Margin="0,0,0,4" MinHeight="28">
+                        <ComboBoxItem Content="Low (200 ms)" Tag="200"/>
+                        <ComboBoxItem Content="Standard (300 ms) — recommended" Tag="300"/>
+                        <ComboBoxItem Content="Bluetooth (500 ms) — AirPods / wireless" Tag="500"/>
+                    </ComboBox>
+                    <TextBlock Style="{DynamicResource HubHintText}" Margin="0,0,0,8" TextWrapping="Wrap"
+                               Text="If you hear random clicks or zzzt sounds on wireless headphones, try Bluetooth (500 ms)."/>
                     <TextBlock Text="ReplayGain" Style="{DynamicResource HubSettingLabel}" Margin="0,0,0,4"/>
                     <ComboBox x:Name="ReplayGainBox" Margin="0,0,0,8" MinHeight="28">
                         <ComboBoxItem Content="Off" Tag="off"/>

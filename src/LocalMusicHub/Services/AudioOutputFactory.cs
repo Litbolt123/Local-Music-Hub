@@ -5,8 +5,13 @@ namespace LocalMusicHub.Services;
 
 public static class AudioOutputFactory
 {
-    public static IWavePlayer Create(string backend, string? deviceId)
+    /// <summary>Default buffer — roomy enough for Bluetooth (AirPods) without feeling laggy.</summary>
+    public const int DefaultLatencyMs = 300;
+
+    public static IWavePlayer Create(string backend, string? deviceId, int latencyMs = DefaultLatencyMs)
     {
+        var latency = Math.Clamp(latencyMs <= 0 ? DefaultLatencyMs : latencyMs, 100, 800);
+
         // Device IDs come from WASAPI enumeration; WaveOut cannot target them.
         var useWasapi = string.Equals(backend, "wasapi", StringComparison.OrdinalIgnoreCase)
                         || !string.IsNullOrWhiteSpace(deviceId);
@@ -17,10 +22,16 @@ public static class AudioOutputFactory
             var device = !string.IsNullOrWhiteSpace(deviceId)
                 ? enumerator.GetDevice(deviceId)
                 : enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-            return new WasapiOut(device, AudioClientShareMode.Shared, false, 200);
+            // Event sync refills as soon as WASAPI needs data (timer sync underruns more often,
+            // especially on Bluetooth). Larger latency = bigger underrun safety margin.
+            return new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: true, latency);
         }
 
-        return new WaveOutEvent();
+        return new WaveOutEvent
+        {
+            DesiredLatency = latency,
+            NumberOfBuffers = 3,
+        };
     }
 
     public static IReadOnlyList<AudioDeviceInfo> ListOutputDevices()

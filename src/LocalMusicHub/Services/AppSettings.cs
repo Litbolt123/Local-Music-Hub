@@ -31,6 +31,8 @@ public sealed class AppSettings
     public string? OrganizeRoot { get; set; }
     public string OutputBackend { get; set; } = "wasapi";
     public string? OutputDeviceId { get; set; }
+    /// <summary>WASAPI/WaveOut buffer size in ms. Higher helps Bluetooth (AirPods); default 300.</summary>
+    public int OutputLatencyMs { get; set; } = AudioOutputFactory.DefaultLatencyMs;
     public string ReplayGainMode { get; set; } = "off";
     public string EqPreset { get; set; } = "flat";
     public bool GaplessEnabled { get; set; }

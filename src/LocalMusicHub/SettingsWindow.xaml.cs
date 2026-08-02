@@ -237,6 +237,7 @@ public partial class SettingsWindow
         PopulateOutputDevices();
         SelectComboByTag(OutputBackendBox, s.OutputBackend);
         SelectComboByTag(OutputDeviceBox, string.IsNullOrWhiteSpace(s.OutputDeviceId) ? "default" : s.OutputDeviceId);
+        SelectComboByTag(OutputLatencyBox, NormalizeLatencyTag(s.OutputLatencyMs));
         SelectComboByTag(ReplayGainBox, s.ReplayGainMode);
         SelectComboByTag(EqPresetBox, s.EqPreset);
 
@@ -278,6 +279,20 @@ public partial class SettingsWindow
 
         return backend;
     }
+
+    private int ResolveOutputLatencyMs()
+    {
+        if (int.TryParse(SelectedTag(OutputLatencyBox), out var ms))
+            return Math.Clamp(ms, 100, 800);
+        return AudioOutputFactory.DefaultLatencyMs;
+    }
+
+    private static string NormalizeLatencyTag(int ms) => ms switch
+    {
+        <= 220 => "200",
+        >= 400 => "500",
+        _ => "300",
+    };
 
     private void PopulateOutputDevices()
     {
@@ -457,6 +472,7 @@ public partial class SettingsWindow
             PlaybackSpeed = PlaybackSpeedSlider.Value,
             OutputBackend = ResolveOutputBackend(),
             OutputDeviceId = SelectedTag(OutputDeviceBox) is "default" ? null : SelectedTag(OutputDeviceBox),
+            OutputLatencyMs = ResolveOutputLatencyMs(),
             ReplayGainMode = SelectedTag(ReplayGainBox) ?? "off",
             EqPreset = SelectedTag(EqPresetBox) ?? "flat",
             GaplessEnabled = GaplessBox.IsChecked == true,

@@ -850,3 +850,18 @@ Shipped full plan except DLNA/Cast:
 
 - **User:** Publish with changelog (Windows Now Playing / SMTC works).
 - **Ship:** tag `v0.13.23` ? CI Windows installer release.
+- **Shipped:** https://github.com/Litbolt123/Local-Music-Hub/releases/tag/v0.13.23 — `LocalMusicHub-Setup-0.13.23.exe` (latest).
+
+
+## 2026-08-02 — Mid-song click/zzzt audio (v0.13.24)
+
+- **User:** Random click/zzzt mid-song (not in WMP); sometimes when idle; AirPods Pro + Magic Pods.
+- **Likely LMH:** WasapiOut used `useEventSync: false` (timer refill ? underruns), short decoder reads, EQ always ran (denormals).
+- **Fix:** Event-driven WASAPI + 300 ms default buffer; Settings Bluetooth 500 ms; `FullBufferSampleProvider`; flat EQ bypass + denormal flush.
+- **Idle clicks:** If LMH is not playing, more likely Magic Pods / AirPods connection chirps than the player.
+- **Build:** Synced **0.13.24**.
+
+## 2026-08-02 — Publishing v0.13.24
+
+- **User:** Audio fix sounds better — publish.
+- **Ship:** tag `v0.13.24` ? CI Windows installer release.

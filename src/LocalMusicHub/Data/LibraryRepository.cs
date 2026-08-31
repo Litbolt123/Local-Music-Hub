@@ -6,6 +6,14 @@ namespace LocalMusicHub.Data;
 
 public sealed class LibraryRepository
 {
+    private const string TrackColumnsNoCover = """
+        id, file_path, title, artist, album, album_artist, track_number, year, genre,
+        duration_ms, bitrate, format, date_added_utc, file_modified_utc,
+        play_count, last_played_utc, rating, cue_start_ms, cue_end_ms, review_status,
+        comment, date_released,
+        replaygain_track_db, replaygain_album_db, replaygain_track_peak, replaygain_album_peak
+        """;
+
     private readonly LibraryDatabase _db;
     private readonly object _gate = new();
 
@@ -95,10 +103,64 @@ public sealed class LibraryRepository
             ReplayGainAlbumPeak = incoming.ReplayGainAlbumPeak ?? existing.ReplayGainAlbumPeak,
         };
 
-    private static string FirstNonBlank(string? preferred, string? fallback) =>
-        !string.IsNullOrWhiteSpace(preferred) ? preferred.Trim()
-        : !string.IsNullOrWhiteSpace(fallback) ? fallback.Trim()
-        : preferred?.Trim() ?? fallback?.Trim() ?? "";
+    private static string FirstNonBlank(string? preferred, string? fallback)
+    {
+        var p = preferred?.Trim() ?? "";
+        var f = fallback?.Trim() ?? "";
+        if (p.Contains('\uFFFD') && f.Length > 0 && !f.Contains('\uFFFD'))
+            return f;
+        if (!string.IsNullOrWhiteSpace(p))
+            return p;
+        return f;
+    }
+
+    /// <summary>Re-read on-disk tags for titles stored with U+FFFD (YouTube DESCRIPTION still has UTF-8).</summary>
+    public int RepairReplacementCharTitles()
+    {
+        List<(long Id, string Path)> rows;
+        lock (_gate)
+        {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT id, file_path FROM tracks
+                WHERE instr(title, char(65533)) > 0
+                """;
+            rows = [];
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                rows.Add((reader.GetInt64(0), reader.GetString(1)));
+        }
+
+        var repaired = 0;
+        foreach (var (id, path) in rows)
+        {
+            var audioPath = CuePathHelper.ResolveAudioPath(path);
+            if (!File.Exists(audioPath))
+                continue;
+
+            try
+            {
+                var fresh = AudioTagReader.Read(audioPath, DateTime.UtcNow);
+                if (string.IsNullOrWhiteSpace(fresh.Title) || fresh.Title.Contains('\uFFFD'))
+                    continue;
+
+                lock (_gate)
+                {
+                    using var update = _db.Connection.CreateCommand();
+                    update.CommandText = "UPDATE tracks SET title = $title WHERE id = $id";
+                    update.Parameters.AddWithValue("$title", fresh.Title);
+                    update.Parameters.AddWithValue("$id", id);
+                    repaired += update.ExecuteNonQuery();
+                }
+            }
+            catch
+            {
+                /* ignore unreadable files */
+            }
+        }
+
+        return repaired;
+    }
 
     public LibraryTrack? GetTrackById(long id)
     {
@@ -561,18 +623,54 @@ public sealed class LibraryRepository
         }
     }
 
-    public IReadOnlyList<LibraryTrack> GetTracksForAlbum(string album)
+    public IReadOnlyList<LibraryTrack> GetTracksForAlbum(string album, bool includeCoverArt = true)
     {
         lock (_gate)
         {
             using var cmd = _db.Connection.CreateCommand();
-            cmd.CommandText = """
-                SELECT * FROM tracks
+            var columns = includeCoverArt ? "*" : TrackColumnsNoCover;
+            cmd.CommandText = $"""
+                SELECT {columns} FROM tracks
                 WHERE LOWER(TRIM(COALESCE(NULLIF(album, ''), 'Unknown Album'))) = $key
                 ORDER BY track_number, title
                 """;
             cmd.Parameters.AddWithValue("$key", NormalizeAlbumKey(album));
-            return ReadTracks(cmd);
+            return ReadTracks(cmd, includeCoverArt);
+        }
+    }
+
+    /// <summary>First track metadata only — no cover blob (fast now-playing chrome).</summary>
+    public LibraryTrack? GetFirstTrackForAlbum(string album)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = $"""
+                SELECT {TrackColumnsNoCover} FROM tracks
+                WHERE LOWER(TRIM(COALESCE(NULLIF(album, ''), 'Unknown Album'))) = $key
+                ORDER BY track_number, title
+                LIMIT 1
+                """;
+            cmd.Parameters.AddWithValue("$key", NormalizeAlbumKey(album));
+            return ReadTracks(cmd, includeCoverArt: false).FirstOrDefault();
+        }
+    }
+
+    public byte[]? GetCoverArtForAlbum(string album) =>
+        LoadOneCoverForAlbum(NormalizeAlbumKey(album));
+
+    public byte[]? GetCoverArtForTrack(long trackId)
+    {
+        if (trackId <= 0)
+            return null;
+
+        lock (_gate)
+        {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = "SELECT cover_art FROM tracks WHERE id = $id AND cover_art IS NOT NULL";
+            cmd.Parameters.AddWithValue("$id", trackId);
+            var value = cmd.ExecuteScalar();
+            return value is byte[] bytes && bytes.Length > 0 ? bytes : null;
         }
     }
 
@@ -1746,20 +1844,24 @@ public sealed class LibraryRepository
         return name.ToLowerInvariant();
     }
 
-    private static List<LibraryTrack> ReadTracks(SqliteCommand cmd)
+    private static List<LibraryTrack> ReadTracks(SqliteCommand cmd, bool includeCoverArt = true)
     {
         var list = new List<LibraryTrack>();
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
-            list.Add(ReadTrack(reader));
+            list.Add(ReadTrack(reader, includeCoverArt));
         return list;
     }
 
-    private static LibraryTrack ReadTrack(SqliteDataReader reader)
+    private static LibraryTrack ReadTrack(SqliteDataReader reader, bool includeCoverArt = true)
     {
-        byte[]? cover = reader.IsDBNull(reader.GetOrdinal("cover_art"))
-            ? null
-            : (byte[])reader["cover_art"];
+        byte[]? cover = null;
+        if (includeCoverArt)
+        {
+            cover = reader.IsDBNull(reader.GetOrdinal("cover_art"))
+                ? null
+                : (byte[])reader["cover_art"];
+        }
 
         DateTime? lastPlayed = null;
         var lastPlayedOrdinal = reader.GetOrdinal("last_played_utc");
@@ -1823,8 +1925,15 @@ public sealed class LibraryRepository
 
     private static int? ReadNullableInt(SqliteDataReader reader, string column)
     {
-        var ordinal = reader.GetOrdinal(column);
-        return reader.IsDBNull(ordinal) ? null : reader.GetInt32(ordinal);
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return reader.IsDBNull(ordinal) ? null : reader.GetInt32(ordinal);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string ReadReviewStatus(SqliteDataReader reader)
@@ -1842,14 +1951,28 @@ public sealed class LibraryRepository
 
     private static double? ReadNullableDouble(SqliteDataReader reader, string column)
     {
-        var ordinal = reader.GetOrdinal(column);
-        return reader.IsDBNull(ordinal) ? null : reader.GetDouble(ordinal);
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return reader.IsDBNull(ordinal) ? null : reader.GetDouble(ordinal);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static float? ReadNullableFloat(SqliteDataReader reader, string column)
     {
-        var ordinal = reader.GetOrdinal(column);
-        return reader.IsDBNull(ordinal) ? null : (float)reader.GetDouble(ordinal);
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return reader.IsDBNull(ordinal) ? null : (float)reader.GetDouble(ordinal);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private byte[]? LoadPlaylistCoverTiles(long playlistId, bool isSmart, SmartPlaylistRules rules)

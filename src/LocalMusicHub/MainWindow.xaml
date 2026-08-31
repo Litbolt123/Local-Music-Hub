@@ -817,20 +817,24 @@
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <Border Width="56" Height="56" CornerRadius="8" Background="{DynamicResource HubMetricBgBrush}" ClipToBounds="True">
                         <Grid>
-                            <TextBlock Text="♪" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"
+                            <TextBlock x:Name="NowPlayingCoverPlaceholder" Text="♪" FontSize="22"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
                                        Foreground="{DynamicResource HubTextMutedBrush}"/>
                             <Image x:Name="NowPlayingCover" Stretch="Uniform"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Grid>
                     </Border>
-                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center" MaxWidth="200">
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center" Width="200">
                         <TextBlock x:Name="NowPlayingTitle" Text="Nothing playing" FontWeight="SemiBold" FontSize="14"
+                                   Height="19" TextWrapping="NoWrap"
                                    Foreground="{DynamicResource HubTextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
                         <TextBlock x:Name="NowPlayingArtist" Style="{DynamicResource HubHintText}" Margin="0,2,0,0"
-                                   TextTrimming="CharacterEllipsis"/>
+                                   Height="16" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
                         <TextBlock x:Name="NowPlayingStats" Style="{DynamicResource HubHintText}" Margin="0,2,0,0"
-                                   TextTrimming="CharacterEllipsis" FontSize="11"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                   Height="14" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" FontSize="11"
+                                   Text="&#160;"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0" Height="22">
                             <local:StarRatingControl x:Name="NowPlayingRating"
                                                      RatingChanged="NowPlayingRating_OnRatingChanged"/>
                         </StackPanel>
@@ -896,6 +900,7 @@
                                    VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0"/>
                         <Slider x:Name="PositionSlider" Grid.Column="1" Minimum="0" Maximum="1" Value="0"
                                 VerticalAlignment="Center"
+                                SmallChange="0.01" LargeChange="0.01"
                                 IsMoveToPointEnabled="True"
                                 PreviewMouseDown="PositionSlider_OnPreviewMouseDown"
                                 LostMouseCapture="PositionSlider_OnLostMouseCapture"

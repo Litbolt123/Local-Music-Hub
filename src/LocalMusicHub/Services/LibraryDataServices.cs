@@ -23,6 +23,8 @@ public sealed class LibraryDataServices
         {
             var start = StartupProfiler.NowMs();
             var repo = new LibraryRepository(_database.Value);
+            try { repo.RepairReplacementCharTitles(); }
+            catch { /* display-time clean still applies */ }
             StartupProfiler.MarkAfter("library.repository_init", start);
             return repo;
         });

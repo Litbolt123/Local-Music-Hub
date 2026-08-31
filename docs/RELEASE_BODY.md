@@ -1,9 +1,18 @@
-## Local Music Hub 0.13.24
+## Local Music Hub 0.13.52
 
-### Audio clicks / zzzt (Bluetooth-friendly)
-- Fixed random mid-song **clicks / zzzt** sounds — especially on wireless headphones (e.g. AirPods).
-- WASAPI now uses **event-driven** refill with a larger default buffer (**300 ms**).
-- Settings → **Audio buffer** includes **Bluetooth (500 ms)** if you still hear glitches on wireless.
-- Short decoder reads no longer underrun the output; flat EQ no longer runs unnecessary filters.
+### Now playing
+- Bottom bar updates instantly on album play and skip (no layout jump, no music-note flash).
+- Jump back in slides the album to the front once, without a second hard reload.
+- Progress bar advances smoothly every frame and resets cleanly on skip.
 
-Install **`LocalMusicHub-Setup-0.13.24.exe`** from this release. Your library under `%LocalAppData%\LocalMusicHub\` is kept.
+### Seek bar
+- Click or drag to a time — audio and the bar stay together, including repeat clicks and the last quarter of a song.
+- Crossfade no longer resets the bar to the next track while the current song is still playing.
+- Seeking into the end of a song no longer jumps to the next track.
+
+### Titles and settings
+- Accented titles (Oxygène, Équinoxe) display correctly when YouTube tags used a replacement character.
+- Settings such as Discord Client ID persist across saves and updates.
+- Tray **Quit** no longer shows an error dialog.
+
+Install **`LocalMusicHub-Setup-0.13.52.exe`** from this release. Your library under `%LocalAppData%\LocalMusicHub\` is kept.

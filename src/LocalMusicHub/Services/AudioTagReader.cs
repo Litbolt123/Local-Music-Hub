@@ -23,8 +23,17 @@ public static class AudioTagReader
         // (featured artists on individual tracks would otherwise split one album into many).
         var albumArtist = TagTextHelper.Clean(FirstNonEmpty(tag.AlbumArtists), path);
         var album = TagTextHelper.Clean(tag.Album ?? "", path);
+        var description = ReadXiphField(file, "DESCRIPTION");
         var title = TagTextHelper.Clean(tag.Title ?? Path.GetFileNameWithoutExtension(path), path, titleFromFileName: true);
-        var comment = TagTextHelper.Clean(tag.Comment ?? "", path);
+        if (title.Contains('\uFFFD'))
+        {
+            var recovered = TagTextHelper.RecoverReplacementTitle(title, description);
+            if (recovered.Length == 0)
+                recovered = TagTextHelper.RecoverReplacementTitle(title, tag.Comment);
+            if (recovered.Length > 0)
+                title = recovered;
+        }
+        var comment = TagTextHelper.Clean(tag.Comment ?? description, path);
         var dateReleased = ReadDateReleased(file);
         var cover = tag.Pictures.FirstOrDefault()?.Data.Data;
         if (cover is not { Length: > 0 })
@@ -166,6 +175,18 @@ public static class AudioTagReader
             var joined = string.Join(", ", values.Where(v => !string.IsNullOrWhiteSpace(v)));
             if (!string.IsNullOrWhiteSpace(joined))
                 return joined;
+        }
+
+        return "";
+    }
+
+    private static string ReadXiphField(TagFile file, string key)
+    {
+        if (file.GetTag(TagLib.TagTypes.Xiph) is TagLib.Ogg.XiphComment xiph)
+        {
+            var value = xiph.GetFirstField(key);
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
         }
 
         return "";

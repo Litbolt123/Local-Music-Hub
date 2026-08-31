@@ -169,8 +169,19 @@ public sealed class TrayIconService : IDisposable
 
     private void ExitApp()
     {
-        _window?.RequestForceClose();
-        Application.Current.Shutdown();
+        var app = Application.Current;
+        if (app is null)
+        {
+            Environment.Exit(0);
+            return;
+        }
+
+        // Return from the context-menu click before Shutdown tears down the NotifyIcon.
+        app.Dispatcher.BeginInvoke(() =>
+        {
+            _window?.RequestForceClose();
+            app.Shutdown();
+        });
     }
 
     public void Dispose()
@@ -178,9 +189,21 @@ public sealed class TrayIconService : IDisposable
         if (_disposed)
             return;
 
-        _icon.Visible = false;
-        _icon.Dispose();
-        _ownedIcon.Dispose();
         _disposed = true;
+
+        try
+        {
+            _icon.BalloonTipClicked -= UpdateBalloon_OnClicked;
+            _icon.ContextMenuStrip = null;
+            _icon.Visible = false;
+        }
+        catch
+        {
+            /* ignore */
+        }
+
+        try { _menu.Dispose(); } catch { /* ignore */ }
+        try { _icon.Dispose(); } catch { /* ignore */ }
+        try { _ownedIcon.Dispose(); } catch { /* ignore */ }
     }
 }

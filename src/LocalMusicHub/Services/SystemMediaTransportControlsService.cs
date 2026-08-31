@@ -63,6 +63,36 @@ public sealed class SystemMediaTransportControlsService : IDisposable
         }
     }
 
+    public void UpdateMetadata(LibraryTrack track)
+    {
+        if (_disposed || _smtc is null)
+            return;
+
+        EnsureAttached();
+        if (_smtc is null)
+            return;
+
+        try
+        {
+            var coverHash = track.CoverArt is { Length: > 0 }
+                ? HashCode.Combine(track.CoverArt.Length, track.CoverArt[0], track.CoverArt[^1])
+                : 0;
+
+            if (_displayedTrackId == track.Id && _displayedCoverHash == coverHash)
+                return;
+
+            _displayedTrackId = track.Id;
+            _displayedCoverHash = coverHash;
+            _smtc.IsEnabled = true;
+            ApplyMetadataText(track);
+            _ = ApplyThumbnailAsync(track);
+        }
+        catch
+        {
+            /* ignore */
+        }
+    }
+
     public void Update(
         LibraryTrack? track,
         bool isPlaying,
@@ -100,7 +130,8 @@ public sealed class SystemMediaTransportControlsService : IDisposable
             {
                 _displayedTrackId = track.Id;
                 _displayedCoverHash = coverHash;
-                _ = ApplyMetadataAsync(track);
+                ApplyMetadataText(track);
+                _ = ApplyThumbnailAsync(track);
             }
 
             UpdateTimelineCore(position, duration, force: true);
@@ -130,30 +161,37 @@ public sealed class SystemMediaTransportControlsService : IDisposable
         }
     }
 
-    private async Task ApplyMetadataAsync(LibraryTrack track)
+    private void ApplyMetadataText(LibraryTrack track)
+    {
+        if (_smtc is null)
+            return;
+
+        var updater = _smtc.DisplayUpdater;
+        updater.Type = MediaPlaybackType.Music;
+        updater.AppMediaId = "Local Music Hub";
+        updater.MusicProperties.Title = Truncate(track.DisplayTitle, 256);
+        updater.MusicProperties.Artist = Truncate(track.DisplayArtist, 256);
+        updater.MusicProperties.AlbumTitle = Truncate(track.DisplayAlbum, 256);
+        if (!string.IsNullOrWhiteSpace(track.AlbumArtist))
+            updater.MusicProperties.AlbumArtist = Truncate(track.AlbumArtist, 256);
+        if (track.TrackNumber is int tn and > 0)
+            updater.MusicProperties.TrackNumber = (uint)tn;
+        updater.Update();
+    }
+
+    private async Task ApplyThumbnailAsync(LibraryTrack track)
     {
         if (_smtc is null)
             return;
 
         try
         {
-            var updater = _smtc.DisplayUpdater;
-            updater.Type = MediaPlaybackType.Music;
-            updater.AppMediaId = "Local Music Hub";
-            updater.MusicProperties.Title = Truncate(track.DisplayTitle, 256);
-            updater.MusicProperties.Artist = Truncate(track.DisplayArtist, 256);
-            updater.MusicProperties.AlbumTitle = Truncate(track.DisplayAlbum, 256);
-            if (!string.IsNullOrWhiteSpace(track.AlbumArtist))
-                updater.MusicProperties.AlbumArtist = Truncate(track.AlbumArtist, 256);
-            if (track.TrackNumber is int tn and > 0)
-                updater.MusicProperties.TrackNumber = (uint)tn;
-
-            updater.Thumbnail = await CreateThumbnailAsync(track.CoverArt).ConfigureAwait(false);
-            // Skip stale updates if the track changed while we were encoding art.
-            if (_displayedTrackId != track.Id)
+            var thumb = await CreateThumbnailAsync(track.CoverArt).ConfigureAwait(false);
+            if (_displayedTrackId != track.Id || _smtc is null)
                 return;
 
-            updater.Update();
+            _smtc.DisplayUpdater.Thumbnail = thumb;
+            _smtc.DisplayUpdater.Update();
         }
         catch
         {

@@ -840,20 +840,20 @@ Shipped full plan except DLNA/Cast:
 - **Ship:** tag `v0.13.22` ? CI Windows installer release.
 - **Shipped:** https://github.com/Litbolt123/Local-Music-Hub/releases/tag/v0.13.22 ? **`LocalMusicHub-Setup-0.13.22.exe`** (latest).
 
-## 2026-08-02 � Windows Now Playing / SMTC (v0.13.23)
+## 2026-08-02 ? Windows Now Playing / SMTC (v0.13.23)
 
 - **User:** Add the Windows Quick Settings Now Playing card for LMH (like Comet).
-- **Impl:** `SystemMediaTransportControlsService` via `SystemMediaTransportControlsInterop.GetForWindow` � title/artist/album/cover, Play/Pause/Next/Prev/Stop, timeline + seek. Wired from playback TrackChanged/StateChanged + position timer.
+- **Impl:** `SystemMediaTransportControlsService` via `SystemMediaTransportControlsInterop.GetForWindow` ? title/artist/album/cover, Play/Pause/Next/Prev/Stop, timeline + seek. Wired from playback TrackChanged/StateChanged + position timer.
 - **Build:** Synced **0.13.23** to Programs folder (after closing running EXE).
 
-## 2026-08-02 � Publishing v0.13.23
+## 2026-08-02 ? Publishing v0.13.23
 
 - **User:** Publish with changelog (Windows Now Playing / SMTC works).
 - **Ship:** tag `v0.13.23` ? CI Windows installer release.
-- **Shipped:** https://github.com/Litbolt123/Local-Music-Hub/releases/tag/v0.13.23 � `LocalMusicHub-Setup-0.13.23.exe` (latest).
+- **Shipped:** https://github.com/Litbolt123/Local-Music-Hub/releases/tag/v0.13.23 ? `LocalMusicHub-Setup-0.13.23.exe` (latest).
 
 
-## 2026-08-02 � Mid-song click/zzzt audio (v0.13.24)
+## 2026-08-02 ? Mid-song click/zzzt audio (v0.13.24)
 
 - **User:** Random click/zzzt mid-song (not in WMP); sometimes when idle; AirPods Pro + Magic Pods.
 - **Likely LMH:** WasapiOut used `useEventSync: false` (timer refill ? underruns), short decoder reads, EQ always ran (denormals).
@@ -861,7 +861,159 @@ Shipped full plan except DLNA/Cast:
 - **Idle clicks:** If LMH is not playing, more likely Magic Pods / AirPods connection chirps than the player.
 - **Build:** Synced **0.13.24**.
 
-## 2026-08-02 � Publishing v0.13.24
+## 2026-08-02 ? Publishing v0.13.24
 
-- **User:** Audio fix sounds better � publish.
+- **User:** Audio fix sounds better ? publish.
 - **Ship:** tag `v0.13.24` ? CI Windows installer release.
+- **Shipped:** https://github.com/Litbolt123/Local-Music-Hub/releases/tag/v0.13.24 ? `LocalMusicHub-Setup-0.13.24.exe` (latest).
+
+
+## 2026-08-30 ? Instant now-playing title/cover (v0.13.25)
+
+- **User:** Title and album cover switch slowly on track click/skip.
+- **Cause:** UI waited for blocking `LoadCurrent` (file decode + WASAPI) and synchronous cover decode on UI thread; SMTC waited for thumbnail before text.
+- **Fix:** `TrackPreview` + `ApplyNowPlayingInstant` before audio load; defer transport via `BeginTransportToTrack`; `CoverArtCache` with async decode + preload next track; SMTC text-first metadata.
+- **Build:** Synced **0.13.25**.
+
+## 2026-08-30 ? Smoother now-playing on album play (v0.13.26)
+
+- **User:** Album click still lags cover/text vs audio; track skips sharper than desired.
+- **Fix:** `BeginQueueAndPlay` for album/playlist/queue paths with album-grid `CoverThumbnail` hint; cover crossfade (~65/95 ms); 128px bar decode; all play entry points use instant preview before `SetQueueAndPlay`.
+- **Build:** Synced **0.13.26**, relaunched.
+
+## 2026-08-30 ? No ? flash + instant album play chrome (v0.13.27)
+
+- **User:** Brief music-note flash before cover; hard switch from hint to track art; ~1s delay before album moves to Jump back in and starts.
+- **Cause:** Crossfade faded to opacity 0 (? visible underneath); hint?track cover re-crossfaded; `GetTracksForAlbum` blocked UI before any chrome; recently-played carousel waited for `TrackStarted`/DB.
+- **Fix:** Collapse placeholder when cover present; keep stale cover until decode; `_coverHintActive` instant swap; softer 110/160 ms crossfade; `ApplyAlbumPlayChrome` + `OptimisticBumpRecentlyPlayed` on click; async track load.
+- **Build:** Synced **0.13.27**, relaunched.
+
+## 2026-08-30 ? Stable now-playing bar height (v0.13.28)
+
+- **User:** Bottom panel shifts/enlarges after click as info loads in two stages.
+- **Cause:** Album play showed album title then track title; stats/rating added on second `RefreshNowPlaying`; text blocks auto-sized.
+- **Fix:** Fixed-height text slots; `ApplyNowPlayingChrome` one-shot (title, artist, stats, stars, cover); skip redundant chrome when same track id; removed interim `ApplyAlbumPlayChrome`.
+- **Build:** Synced **0.13.28**, relaunched.
+
+## 2026-08-30 ? Fast album-play metadata (v0.13.29)
+
+- **User:** ~1s before song info appears in bottom bar after album click (pre-layout-fix builds).
+- **Cause:** `GetTracksForAlbum` loaded every track with `cover_art` blobs before any chrome; single staged update after full query.
+- **Fix:** `GetFirstTrackForAlbum` + instant `ApplyNowPlayingChrome`; parallel queue load with `includeCoverArt: false`; cached `_albumDrillDownTracks` for in-album play.
+- **Build:** Synced **0.13.29**, relaunched.
+
+## 2026-08-30 ? Fix playback broken by fast album query (v0.13.30)
+
+- **User:** App won't play after 0.13.29.
+- **Cause:** `TrackColumnsNoCover` omitted `replaygain_*` columns; `ReadNullableDouble` threw; background queue load failed silently.
+- **Fix:** Include replay-gain in lite SELECT; safe optional-column readers; surface load errors in ViewTitle.
+- **Build:** Synced **0.13.30**, relaunched.
+
+## 2026-08-30 ? Prefetch now-playing covers (v0.13.31)
+
+- **User:** Bottom-left still takes ~1s after skip / album change; asked for cache.
+- **Cause:** Lite album loads strip cover blobs, so CoverArtCache missed and chrome waited on decode.
+- **Fix:** Cache by track id + album; remember album-grid thumbnails; prefetch next/prev/next+1; album click paints thumbnail immediately then swaps to track chrome.
+- **Build:** Synced **0.13.31**, relaunched.
+
+## 2026-08-30 ? Background now-playing prefetch (v0.13.32)
+
+- **User:** Still small delay on skip/album; wants auto background warm-up.
+- **Cause:** `RefreshNowPlayingSecondary` blocked UI on `GetTrackById` (full row + cover blob); cover decode always async even when bytes cached; album first-track not prefetched until click.
+- **Fix:** `NowPlayingPrefetchService` (Home/Albums/queue/track-start warm); `CoverArtCache.WarmSync`; stats refresh async only.
+- **Build:** Synced **0.13.32**, relaunched.
+
+## 2026-08-30 ? Skip off UI thread + stable stats (v0.13.33)
+
+- **User:** Play count line still updates again after click; skip still feels delayed.
+- **Cause:** `LoadCurrent` blocked UI thread after chrome paint; async `GetTrackById` + `RecordPlay` refreshed stats; duplicate `TrackPreview` chrome.
+- **Fix:** `Task.Run` transport; optimistic stats once on click; no stats DB refresh on secondary refresh; skip duplicate TrackPreview when same track id.
+- **Build:** Synced **0.13.33**, relaunched.
+
+## 2026-08-30 ? Smooth Jump back in + responsive progress (v0.13.34)
+
+- **User:** Jump back in still has slight delay/hard move; play bar time should update responsively ("everything you see should" feel smooth).
+- **Cause:** `ShowHome()` on track start reloaded carousel; ItemsSource null/rebind; slider `Math.Max` prevented reset on skip; position anchor not reset on track change.
+- **Fix:** ObservableCollection in-place reorder + eased scroll; optimistic bump only once; `ResetPositionChromeForTrack`; per-frame position render with backward allowed on track change.
+- **Build:** Synced **0.13.34**, relaunched.
+- **Playtest:** August confirmed ? **exactly how I want it.** Gold standard for now-playing UX; logged to vault `Memories.md`, `Projects/Local Music Hub/lessons.md`, `Atlas/Lessons.md`.
+
+## 2026-08-30 — Seek bar audio/UI desync (v0.13.42–0.13.43)
+
+- **User:** Song does not follow where the seek bar goes; must be exact on click, stay there, advance while playing.
+- **Cause:** WASAPI output buffer still held pre-seek audio; UI pinned before seek completed; crossfade sought wrong reader; drift resync pulled bar backward after forward seek; stale deferred commits dropped repeat clicks.
+- **Fix:** `FlushPlaybackBuffer`, `CancelCrossfadeForSeek`, `PinPositionChrome` on `PositionChanged`, seek grace + one-sided drift, scrub generation counter (0.13.43).
+- **Build:** Synced **0.13.43** — awaiting playtest before publish.
+
+## 2026-08-30 — Seek near end intermittent (v0.13.44)
+
+- **User:** Seek sometimes fails, especially towards end of song.
+- **Cause:** `Stop()` during seek flush fired `PlaybackStopped` near EOF → queue advanced instead of resuming; crossfade cancel raced audio thread; next-track reader not re-armed after cancel.
+- **Fix:** Seek guard + playback-stopped suppress; stop-before-cancel; preload next; crossfade suppress window.
+- **Build:** Synced **0.13.44** — awaiting playtest.
+
+## 2026-08-30 — Seek bar stuck at end (v0.13.45)
+
+- **User:** Click towards end — UI stuck at end, audio plays elsewhere; pause shows real position (screenshot: 0:39 / -1:02).
+- **Cause:** Failed seek still pinned UI to click target; monotonic/drift logic couldn't pull bar back.
+- **Fix:** Pin to actual decode position; backward drift resync; render clamp.
+- **Build:** Synced **0.13.45** — awaiting playtest.
+
+## 2026-08-30 — Rapid seek snap-back (v0.13.46)
+
+- **User:** Clicking around the bar a bunch causes snap-back again.
+- **Cause:** Each click issued separate Stop/Play seek; render clamp fought pinned position during grace gaps.
+- **Fix:** 75ms debounced commit; protected render during grace.
+- **Build:** Synced **0.13.46** — awaiting playtest.
+
+## 2026-08-30 — Forward seek permanent snap-back (v0.13.47)
+
+- **User:** After one forward click, bar snaps back forever during that song.
+- **Cause:** Stale decode read + backward drift resync after grace + global render clamp.
+- **Fix:** Trust click, late-bind decode, remove mid-song backward resync.
+- **Build:** Synced **0.13.47** — awaiting playtest.
+
+## 2026-08-30 — Repeat forward seek UI-only (v0.13.48)
+
+- **User:** After clicking forward more than once, only UI moves, not audio.
+- **Cause:** PlaybackStopped auto-Play during seek guard restarted old position; UI pinned without verifying decode.
+- **Fix:** Seek owns restart lifecycle; verify/retry; immediate commits.
+- **Build:** Synced **0.13.48** — awaiting playtest.
+
+## 2026-08-30 — Song title encoding display (v0.13.49)
+
+- **User:** Oxygène shows as Oxygne with replacement char; asked why things feel degrading.
+- **Cause:** Unrelated to seek work — tag encoding fix only ran at scan, not on `DisplayTitle` from SQLite.
+- **Fix:** Display-time `TagTextHelper.Clean` + filename fallback for U+FFFD.
+- **Build:** Synced **0.13.49**.
+
+## 2026-08-30 — Seek bar over-engineering regression (v0.13.50)
+
+- **User:** Frustrated — audio stutters at one spot, seek bar glitches, repeat seeks UI-only; title still broken.
+- **Cause:** Layered seek patches (Stop/Play each seek, ApplicationIdle retry, grace/clamp/drift fighting) accumulated; double `BeginPositionScrub` gen increment; title regex missed `12. Oxygène` patterns.
+- **Worked:** Strip back to v0.11-style seek (set `reader.CurrentTime` only); commit pins `Playback.Position`; no retry; single scrub start; simpler render loop.
+- **Build:** Synced **0.13.50** — playtest seek + Oxygène title.
+
+## 2026-08-30 — Équinoxe / Oxygène still diamond (v0.13.51)
+
+- **User:** Screenshot still shows �quinoxe.
+- **Cause:** YouTube FLACs have U+FFFD in TITLE *and* filename; DESCRIPTION still has real UTF-8.
+- **Fix:** Recover title from DESCRIPTION; repair SQLite on open.
+- **Build:** Synced **0.13.51**.
+
+## 2026-08-30 — Rebuild before every rerun (standing)
+
+- **User:** If you don't rebuild, I get to test none of your fixes.
+- **Worked:** Standing rule — stop Hub, `scripts/build-release.ps1`, then launch. Logged to Memories, People/August, lessons.
+
+## 2026-08-30 — Seek last 1/4 of bar (v0.13.52)
+
+- **User:** Skip forward works except last quarter of the seek bar.
+- **Cause:** Seek past real audio / into crossfade window started next track; slider LargeChange on 0–1 range.
+- **Fix:** min(tag, file) duration; EOF clamp; suppress crossfade after seek; slider click-to-point.
+- **Build:** Rebuilding then launch.
+
+## 2026-08-30 — Publish v0.13.52
+
+- **User:** All those things are working now. Publish.
+- **Shipped:** Tag `v0.13.52` — now-playing UX, seek bar, accented titles, settings persist, tray Quit.

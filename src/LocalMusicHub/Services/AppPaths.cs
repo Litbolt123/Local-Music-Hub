@@ -26,7 +26,11 @@ public static class AppPaths
 
 public static class AppSettingsService
 {
-    public static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
+    public static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+    };
 
     public static AppSettings Load()
     {

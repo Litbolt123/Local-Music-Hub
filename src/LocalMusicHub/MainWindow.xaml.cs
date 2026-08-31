@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Http;
 using System.Windows;
@@ -5,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using LocalMusicHub.Data;
 using LocalMusicHub.Models;
@@ -19,7 +21,7 @@ public partial class MainWindow
     private GlobalMediaKeyService? _mediaKeys;
     private SystemMediaTransportControlsService? _smtc;
     private MiniPlayerWindow? _miniPlayer;
-    private readonly DispatcherTimer _positionTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private readonly DispatcherTimer _positionTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private readonly DispatcherTimer _searchDebounceTimer;
     private double _volumeBeforeMute = 0.85;
     private bool _muted;
@@ -36,8 +38,9 @@ public partial class MainWindow
     private LibraryAlbum? _selectedAlbum;
     private bool _positionScrubbing;
     private bool _suppressPositionSlider;
-    private bool _positionSeekCommitted;
-    private bool _positionSeekPending;
+    private int _positionSeekGeneration;
+    private int _lastCommittedSeekGeneration = -1;
+    private bool _cleanupDone;
     private bool _forceClose;
     private bool _positionRenderActive;
     private EventHandler? _positionRenderingHandler;
@@ -45,6 +48,16 @@ public partial class MainWindow
     private TimeSpan _positionAnchorDuration;
     private DateTime _positionAnchorUtc;
     private double _smoothedSliderFraction;
+    private long _positionTrackId = -1;
+    private ObservableCollection<LibraryAlbum>? _jumpBackInItems;
+    private DispatcherTimer? _jumpBackInScrollTimer;
+    private string? _optimisticJumpBackInAlbumKey;
+    private int _nowPlayingCoverGeneration;
+    private int _coverFadeGeneration;
+    private bool _coverHintActive;
+    private long _nowPlayingChromeTrackId = -1;
+    private const int NowPlayingCoverPixels = 128;
+    private int _albumPlayGeneration;
     private bool _startMinimizedToTray;
     private bool _scanInProgress;
     private bool _suppressNavEvents;
@@ -204,11 +217,7 @@ public partial class MainWindow
 
             _browseMode = "playlist";
             _selectedPlaylistId = playlist.Id;
-            Playback.SetQueueAndPlay(tracks, 0);
-            if (!Playback.IsPlaying && !string.IsNullOrWhiteSpace(Playback.LastError))
-                ViewTitleText.Text = Playback.LastError;
-            RefreshNowPlaying();
-            UpdatePlayPauseChrome();
+            BeginQueueAndPlay(tracks, 0, CoverHintFromBytes(playlist.CoverArt));
         }
         catch (Exception ex)
         {
@@ -377,17 +386,9 @@ public partial class MainWindow
         _mediaKeys = new GlobalMediaKeyService(this);
         _mediaKeys.PlayPauseRequested += () => Dispatcher.Invoke(HandleMediaPlayPause);
         _mediaKeys.NextRequested += () => Dispatcher.Invoke(() =>
-        {
-            Playback.Next();
-            RefreshNowPlaying();
-            UpdatePlayPauseChrome();
-        });
+            BeginTransportToTrack(Playback.PeekNextTrack(), () => Playback.Next()));
         _mediaKeys.PreviousRequested += () => Dispatcher.Invoke(() =>
-        {
-            Playback.Previous();
-            RefreshNowPlaying();
-            UpdatePlayPauseChrome();
-        });
+            BeginTransportToTrack(Playback.PeekPreviousTrack(), () => Playback.Previous()));
         _mediaKeys.StopRequested += () => Dispatcher.Invoke(() =>
         {
             Playback.Pause();
@@ -418,17 +419,9 @@ public partial class MainWindow
             UpdatePlayPauseChrome();
         });
         _smtc.NextRequested += () => Dispatcher.Invoke(() =>
-        {
-            Playback.Next();
-            RefreshNowPlaying();
-            UpdatePlayPauseChrome();
-        });
+            BeginTransportToTrack(Playback.PeekNextTrack(), () => Playback.Next()));
         _smtc.PreviousRequested += () => Dispatcher.Invoke(() =>
-        {
-            Playback.Previous();
-            RefreshNowPlaying();
-            UpdatePlayPauseChrome();
-        });
+            BeginTransportToTrack(Playback.PeekPreviousTrack(), () => Playback.Previous()));
         _smtc.StopRequested += () => Dispatcher.Invoke(() =>
         {
             Playback.Pause();
@@ -438,6 +431,7 @@ public partial class MainWindow
         _smtc.SeekRequested += pos => Dispatcher.Invoke(() =>
         {
             Playback.Seek(pos);
+            PinPositionChrome(Playback.Position, Playback.Duration);
             RefreshNowPlaying();
         });
         UpdateSystemMediaTransportControls();
@@ -681,6 +675,10 @@ public partial class MainWindow
 
     private void CleanupOnRealClose()
     {
+        if (_cleanupDone)
+            return;
+
+        _cleanupDone = true;
         _scanCts?.Cancel();
         _positionTimer.Stop();
         SetPositionRenderActive(false);
@@ -1418,10 +1416,10 @@ public partial class MainWindow
             _lyricsPrefetchService?.Enqueue(track);
             Dispatcher.Invoke(() =>
             {
-                RefreshNowPlaying();
+                NowPlayingPrefetch.WarmQueue(Playback.Queue, Playback.QueueIndex, NowPlayingCoverPixels);
                 UpdateDiscordPresence();
                 if (_browseMode == "home")
-                    ShowHome();
+                    TryBumpJumpBackInForTrack(track);
             });
         }
         catch
@@ -1511,11 +1509,7 @@ public partial class MainWindow
         if (tracks.Count == 0)
             return;
 
-        Playback.SetQueueAndPlay(tracks, 0);
-        if (!Playback.IsPlaying && !string.IsNullOrWhiteSpace(Playback.LastError))
-            ViewTitleText.Text = Playback.LastError;
-        RefreshNowPlaying();
-        UpdatePlayPauseChrome();
+        BeginQueueAndPlay(tracks, 0, CoverHintFromBytes(playlist.CoverArt));
     }
 
     private static LibraryPlaylist? GetPlaylistFromNode(object? item) =>
@@ -1823,6 +1817,7 @@ public partial class MainWindow
                     if (!string.IsNullOrWhiteSpace(_albumDrillDown))
                     {
                         var albumTracks = Repository.GetTracksForAlbum(_albumDrillDown).ToList();
+                        _albumDrillDownTracks = albumTracks;
                         var first = albumTracks.FirstOrDefault();
                         ViewTitleText.Text = first is null
                             ? _albumDrillDown
@@ -2132,6 +2127,9 @@ public partial class MainWindow
         _ = Task.Run(() =>
         {
             CoverArtHelper.WarmAlbumThumbnails(albums);
+            foreach (var album in albums)
+                CoverArtCache.WarmAlbum(album, NowPlayingCoverPixels);
+            NowPlayingPrefetch.WarmAlbums(albums, NowPlayingCoverPixels);
         });
         UpdateAlbumCardPauseIndicators();
     }
@@ -2151,6 +2149,9 @@ public partial class MainWindow
 
         CoverArtHelper.WarmAlbumThumbnails(recent);
         CoverArtHelper.WarmAlbumThumbnails(added);
+        foreach (var album in recent.Concat(added))
+            CoverArtCache.WarmAlbum(album, NowPlayingCoverPixels);
+        NowPlayingPrefetch.WarmAlbums(recent.Concat(added), NowPlayingCoverPixels);
 
         JumpBackInEmpty.Visibility = recent.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         RecentlyAddedEmpty.Visibility = added.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -2160,11 +2161,9 @@ public partial class MainWindow
             album.IsSelected = selectedKey is not null &&
                                string.Equals(album.Key, selectedKey, StringComparison.Ordinal);
 
-        JumpBackInGrid.ItemsSource = null;
-        JumpBackInGrid.ItemsSource = recent;
+        BindJumpBackInAlbums(recent, smoothScroll: false);
         RecentlyAddedGrid.ItemsSource = null;
         RecentlyAddedGrid.ItemsSource = added;
-        JumpBackInScroller?.ScrollToHorizontalOffset(0);
         RecentlyAddedScroller?.ScrollToHorizontalOffset(0);
         UpdateAlbumCardPauseIndicators();
         UpdateCarouselNav(JumpBackInCarousel, JumpBackInCarousel?.IsMouseOver == true);
@@ -2383,16 +2382,204 @@ public partial class MainWindow
         e.Handled = true;
     }
 
+    private List<LibraryTrack>? _albumDrillDownTracks;
+
     private void PlayAlbum(LibraryAlbum album)
     {
-        var tracks = Repository.GetTracksForAlbum(album.Album);
-        if (tracks.Count == 0)
+        var playGen = ++_albumPlayGeneration;
+        CoverArtCache.RememberAlbum(album);
+        NowPlayingPrefetch.WarmAlbum(album, NowPlayingCoverPixels);
+        OptimisticBumpRecentlyPlayed(album);
+        SetOptimisticAlbumPlaying(album);
+
+        var cachedFirst = NowPlayingPrefetch.TryGetFirstTrack(album.Album);
+        if (cachedFirst is not null)
+        {
+            ApplyNowPlayingChrome(cachedFirst, album.CoverThumbnail, assumePlaying: true);
+        }
+        else
+        {
+            NowPlayingTitle.Text = album.Album;
+            NowPlayingArtist.Text = string.IsNullOrWhiteSpace(album.AlbumArtist)
+                ? "Unknown Artist"
+                : album.AlbumArtist;
+            NowPlayingStats.Text = "\u00a0";
+            SetPlayPauseIcons(playing: true);
+            if (album.CoverThumbnail is not null)
+            {
+                _coverHintActive = true;
+                SetNowPlayingCoverSmooth(album.CoverThumbnail, immediate: true);
+            }
+        }
+
+        // Fill first-track cache if needed, then paint full chrome.
+        _ = Task.Run(() =>
+        {
+            var first = NowPlayingPrefetch.GetOrLoadFirstTrack(album.Album);
+            if (first is null || playGen != _albumPlayGeneration)
+                return;
+
+            Dispatcher.Invoke(() =>
+            {
+                if (playGen != _albumPlayGeneration)
+                    return;
+                if (cachedFirst is null || first.Id != cachedFirst.Id)
+                    ApplyNowPlayingChrome(first, album.CoverThumbnail, assumePlaying: true);
+            });
+        });
+
+        // Queue load skips cover blobs — same paths/metadata, much faster for large albums.
+        _ = Task.Run(() => Repository.GetTracksForAlbum(album.Album, includeCoverArt: false))
+            .ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    Dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
+                        ViewTitleText.Text = t.Exception?.GetBaseException().Message ?? "Could not load album tracks.");
+                    return;
+                }
+
+                if (!t.IsCompletedSuccessfully)
+                    return;
+
+                var tracks = t.Result;
+                if (tracks.Count == 0)
+                    return;
+
+                Dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
+                    BeginQueueAndPlay(tracks, 0, album.CoverThumbnail, skipChrome: true));
+            }, TaskScheduler.Default);
+    }
+
+    private void BindJumpBackInAlbums(IReadOnlyList<LibraryAlbum> albums, bool smoothScroll)
+    {
+        if (JumpBackInGrid is null)
             return;
-        Playback.SetQueueAndPlay(tracks, 0);
-        if (!Playback.IsPlaying && !string.IsNullOrWhiteSpace(Playback.LastError))
-            ViewTitleText.Text = Playback.LastError;
-        RefreshNowPlaying();
-        UpdatePlayPauseChrome();
+
+        _jumpBackInItems ??= new ObservableCollection<LibraryAlbum>();
+        if (!ReferenceEquals(JumpBackInGrid.ItemsSource, _jumpBackInItems))
+            JumpBackInGrid.ItemsSource = _jumpBackInItems;
+
+        _jumpBackInItems.Clear();
+        foreach (var album in albums)
+            _jumpBackInItems.Add(album);
+
+        if (smoothScroll)
+            SmoothScrollJumpBackInToStart();
+        else
+            JumpBackInScroller?.ScrollToHorizontalOffset(0);
+    }
+
+    private void TryBumpJumpBackInForTrack(LibraryTrack track)
+    {
+        var key = LibraryRepository.NormalizeAlbumKey(track.Album);
+        if (string.Equals(_optimisticJumpBackInAlbumKey, key, StringComparison.Ordinal))
+        {
+            _optimisticJumpBackInAlbumKey = null;
+            return;
+        }
+
+        if (_jumpBackInItems is null || _jumpBackInItems.Count == 0)
+            return;
+
+        var existing = _jumpBackInItems.FirstOrDefault(a =>
+            string.Equals(a.Key, key, StringComparison.Ordinal));
+        if (existing is not null)
+        {
+            MoveJumpBackInAlbumToFront(existing, smoothScroll: true);
+            return;
+        }
+
+        if (_selectedAlbum is not null &&
+            string.Equals(_selectedAlbum.Key, key, StringComparison.Ordinal))
+            MoveJumpBackInAlbumToFront(_selectedAlbum, smoothScroll: true);
+    }
+
+    private void MoveJumpBackInAlbumToFront(LibraryAlbum album, bool smoothScroll)
+    {
+        if (_jumpBackInItems is null)
+            return;
+
+        for (var i = 0; i < _jumpBackInItems.Count; i++)
+        {
+            if (!string.Equals(_jumpBackInItems[i].Key, album.Key, StringComparison.Ordinal))
+                continue;
+            if (i == 0)
+                return;
+            _jumpBackInItems.Move(i, 0);
+            JumpBackInEmpty.Visibility = Visibility.Collapsed;
+            if (smoothScroll)
+                SmoothScrollJumpBackInToStart();
+            UpdateCarouselNav(JumpBackInCarousel, JumpBackInCarousel?.IsMouseOver == true);
+            return;
+        }
+
+        _jumpBackInItems.Insert(0, album);
+        JumpBackInEmpty.Visibility = Visibility.Collapsed;
+        if (smoothScroll)
+            SmoothScrollJumpBackInToStart();
+        UpdateCarouselNav(JumpBackInCarousel, JumpBackInCarousel?.IsMouseOver == true);
+    }
+
+    private void SmoothScrollJumpBackInToStart(int durationMs = 200)
+    {
+        var scroller = JumpBackInScroller;
+        if (scroller is null)
+            return;
+
+        var from = scroller.HorizontalOffset;
+        if (from < 1)
+            return;
+
+        _jumpBackInScrollTimer?.Stop();
+        var started = DateTime.UtcNow;
+        _jumpBackInScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        _jumpBackInScrollTimer.Tick += (_, _) =>
+        {
+            if (scroller is null)
+            {
+                _jumpBackInScrollTimer?.Stop();
+                return;
+            }
+
+            var t = (DateTime.UtcNow - started).TotalMilliseconds / durationMs;
+            if (t >= 1)
+            {
+                scroller.ScrollToHorizontalOffset(0);
+                _jumpBackInScrollTimer?.Stop();
+                return;
+            }
+
+            var eased = 1 - Math.Pow(1 - t, 3);
+            scroller.ScrollToHorizontalOffset(from * (1 - eased));
+        };
+        _jumpBackInScrollTimer.Start();
+    }
+
+    private void OptimisticBumpRecentlyPlayed(LibraryAlbum album)
+    {
+        if (_browseMode != "home" || JumpBackInGrid is null)
+            return;
+
+        if (_jumpBackInItems is null)
+        {
+            var seed = JumpBackInGrid.ItemsSource as IEnumerable<LibraryAlbum> ?? [];
+            _jumpBackInItems = new ObservableCollection<LibraryAlbum>(seed);
+            JumpBackInGrid.ItemsSource = _jumpBackInItems;
+        }
+        else if (!ReferenceEquals(JumpBackInGrid.ItemsSource, _jumpBackInItems))
+            JumpBackInGrid.ItemsSource = _jumpBackInItems;
+
+        _optimisticJumpBackInAlbumKey = album.Key;
+        MoveJumpBackInAlbumToFront(album, smoothScroll: true);
+    }
+
+    private void SetOptimisticAlbumPlaying(LibraryAlbum album)
+    {
+        foreach (var item in EnumerateVisibleAlbums())
+        {
+            item.ShowPause = string.Equals(item.Key, album.Key, StringComparison.Ordinal);
+        }
     }
 
     private static DependencyObject? FindAncestorWithTag(DependencyObject? node, string tag)
@@ -2453,7 +2640,7 @@ public partial class MainWindow
             AlbumGrid.ItemsSource = copy;
         }
 
-        if (JumpBackInGrid?.ItemsSource is IEnumerable<LibraryAlbum> jump)
+        if (JumpBackInGrid?.ItemsSource is IEnumerable<LibraryAlbum> jump && _jumpBackInItems is null)
         {
             var copy = jump.ToList();
             JumpBackInGrid.ItemsSource = null;
@@ -2857,16 +3044,7 @@ public partial class MainWindow
                     start = idx;
             }
 
-            Playback.SetQueueAndPlay(tracks, start);
-            if (!Playback.IsPlaying)
-            {
-                ViewTitleText.Text = string.IsNullOrWhiteSpace(Playback.LastError)
-                    ? "Could not start playback"
-                    : Playback.LastError;
-            }
-
-            RefreshNowPlaying();
-            UpdatePlayPauseChrome();
+            BeginQueueAndPlay(tracks, start, ResolveCoverHintForPlayback(tracks));
         }
     }
 
@@ -2882,12 +3060,25 @@ public partial class MainWindow
         {
             var album = _selectedAlbum;
             if (album is not null)
-                return Repository.GetTracksForAlbum(album.Album).ToList();
+                return Repository.GetTracksForAlbum(album.Album, includeCoverArt: false).ToList();
             return [];
         }
 
-        if (_browseMode == "album-tracks" && !string.IsNullOrWhiteSpace(_albumDrillDown))
-            return Repository.GetTracksForAlbum(_albumDrillDown).ToList();
+        if (_browseMode == "album-tracks")
+        {
+            if (_albumDrillDownTracks is { Count: > 0 } cached)
+                return cached.ToList();
+
+            if (TrackList.ItemsSource is IEnumerable<LibraryTrack> listed)
+            {
+                var fromList = listed.ToList();
+                if (fromList.Count > 0)
+                    return fromList;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_albumDrillDown))
+                return Repository.GetTracksForAlbum(_albumDrillDown, includeCoverArt: false).ToList();
+        }
 
         if (_browseMode == "artist-tracks" && !string.IsNullOrWhiteSpace(_listDrillDown))
         {
@@ -2900,7 +3091,7 @@ public partial class MainWindow
             return Repository.GetTracksForGenre(_listDrillDown).ToList();
 
         if (TrackList.SelectedItem is LibraryAlbum selectedAlbum)
-            return Repository.GetTracksForAlbum(selectedAlbum.Album).ToList();
+            return Repository.GetTracksForAlbum(selectedAlbum.Album, includeCoverArt: false).ToList();
 
         if (TrackList.SelectedItem is LibraryArtist artist)
             return Repository.GetAllTracks().Where(t =>
@@ -2922,7 +3113,7 @@ public partial class MainWindow
         {
             var album = _selectedAlbum;
             if (album is not null)
-                return Repository.GetTracksForAlbum(album.Album).ToList();
+                return Repository.GetTracksForAlbum(album.Album, includeCoverArt: false).ToList();
             return [];
         }
 
@@ -2937,7 +3128,7 @@ public partial class MainWindow
             return [track];
 
         if (TrackList.SelectedItem is LibraryAlbum selectedAlbum)
-            return Repository.GetTracksForAlbum(selectedAlbum.Album).ToList();
+            return Repository.GetTracksForAlbum(selectedAlbum.Album, includeCoverArt: false).ToList();
 
         if (TrackList.SelectedItem is LibraryArtist artist)
             return Repository.GetAllTracks().Where(t =>
@@ -4233,9 +4424,7 @@ public partial class MainWindow
 
         // Play from here: drop tracks before the clicked item so the queue matches.
         var fromHere = Playback.Queue.Skip(index).ToList();
-        Playback.SetQueueAndPlay(fromHere, 0);
-        RefreshNowPlaying();
-        UpdatePlayPauseChrome();
+        BeginQueueAndPlay(fromHere, 0);
     }
 
     private void QueueMoveUp_OnClick(object sender, RoutedEventArgs e)
@@ -4291,8 +4480,137 @@ public partial class MainWindow
         UpdatePlayPauseChrome();
     }
 
-    private void Previous_OnClick(object sender, RoutedEventArgs e) => Playback.Previous();
-    private void Next_OnClick(object sender, RoutedEventArgs e) => Playback.Next();
+    private void Previous_OnClick(object sender, RoutedEventArgs e) =>
+        BeginTransportToTrack(Playback.PeekPreviousTrack(), () => Playback.Previous());
+
+    private void Next_OnClick(object sender, RoutedEventArgs e) =>
+        BeginTransportToTrack(Playback.PeekNextTrack(), () => Playback.Next());
+
+    /// <summary>Paint new track chrome immediately, then run blocking audio work off the UI thread.</summary>
+    private void BeginTransportToTrack(LibraryTrack? preview, Action transport)
+    {
+        if (preview is not null)
+        {
+            ApplyNowPlayingChrome(preview, assumePlaying: true);
+            PrefetchNeighborCovers();
+        }
+
+        _ = Task.Run(transport);
+    }
+
+    private void BeginQueueAndPlay(
+        IReadOnlyList<LibraryTrack> tracks,
+        int startIndex = 0,
+        ImageSource? coverHint = null,
+        bool skipChrome = false)
+    {
+        if (tracks.Count == 0)
+            return;
+
+        var start = Math.Clamp(startIndex, 0, tracks.Count - 1);
+        var preview = tracks[start];
+        if (!skipChrome)
+        {
+            CoverArtCache.Warm(preview, NowPlayingCoverPixels);
+            ApplyNowPlayingChrome(preview, coverHint, assumePlaying: true);
+        }
+        PrefetchNeighborCovers(tracks, start);
+
+        Dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
+        {
+            _ = Task.Run(() =>
+            {
+                Playback.SetQueueAndPlay(tracks, start);
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (!Playback.IsPlaying && !string.IsNullOrWhiteSpace(Playback.LastError))
+                        ViewTitleText.Text = Playback.LastError;
+                    if (Playback.CurrentTrack is { } current)
+                        RefreshNowPlayingSecondary(current);
+                    else
+                        UpdatePlayPauseChrome();
+                });
+            });
+        });
+    }
+
+    private ImageSource? ResolveCoverHintForPlayback(IReadOnlyList<LibraryTrack> tracks)
+    {
+        if (_selectedAlbum?.CoverThumbnail is { } thumb)
+            return thumb;
+
+        if (tracks.Count > 0)
+        {
+            var cached = CoverArtCache.Get(tracks[0], NowPlayingCoverPixels);
+            if (cached is not null)
+                return cached;
+            return CoverHintFromBytes(tracks[0].CoverArt);
+        }
+
+        return null;
+    }
+
+    private ImageSource? CoverHintFromBytes(byte[]? coverArt) =>
+        coverArt is { Length: > 0 }
+            ? CoverArtHelper.ToBitmap(coverArt, NowPlayingCoverPixels, centerCropSquare: true)
+            : null;
+
+    private void SyncCoverPlaceholder()
+    {
+        if (NowPlayingCoverPlaceholder is null)
+            return;
+
+        NowPlayingCoverPlaceholder.Visibility = NowPlayingCover.Source is null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void SetNowPlayingCoverSmooth(ImageSource? newCover, bool immediate = false)
+    {
+        if (newCover is null)
+        {
+            NowPlayingCover.BeginAnimation(UIElement.OpacityProperty, null);
+            NowPlayingCover.Opacity = 1;
+            NowPlayingCover.Source = null;
+            SyncCoverPlaceholder();
+            return;
+        }
+
+        if (ReferenceEquals(NowPlayingCover.Source, newCover))
+        {
+            SyncCoverPlaceholder();
+            return;
+        }
+
+        var fadeGen = ++_coverFadeGeneration;
+        if (immediate || _coverHintActive || NowPlayingCover.Source is null)
+        {
+            NowPlayingCover.BeginAnimation(UIElement.OpacityProperty, null);
+            NowPlayingCover.Opacity = 1;
+            NowPlayingCover.Source = newCover;
+            SyncCoverPlaceholder();
+            return;
+        }
+
+        var fadeOut = new DoubleAnimation(NowPlayingCover.Opacity, 0.12, TimeSpan.FromMilliseconds(110))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
+        };
+        fadeOut.Completed += (_, _) =>
+        {
+            if (fadeGen != _coverFadeGeneration)
+                return;
+
+            NowPlayingCover.Source = newCover;
+            SyncCoverPlaceholder();
+            var fadeIn = new DoubleAnimation(0.12, 1, TimeSpan.FromMilliseconds(160))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
+            };
+            NowPlayingCover.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+        };
+        NowPlayingCover.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+    }
 
     private void Shuffle_OnClick(object sender, RoutedEventArgs e)
     {
@@ -4400,11 +4718,30 @@ public partial class MainWindow
         return null;
     }
 
-    private void PositionSlider_OnPreviewMouseDown(object sender, MouseButtonEventArgs e) => BeginPositionScrub();
+    private void PositionSlider_OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left)
+            return;
 
-    private void PositionSlider_OnSeekMouseUp(object sender, MouseButtonEventArgs e) => EndPositionScrub();
+        BeginPositionScrub();
+    }
 
-    private void PositionSlider_OnLostMouseCapture(object sender, System.Windows.Input.MouseEventArgs e) => EndPositionScrub();
+    private void PositionSlider_OnSeekMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left)
+            return;
+
+        EndPositionScrub();
+    }
+
+    private void PositionSlider_OnLostMouseCapture(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        // LostMouseCapture can fire before IsMoveToPointEnabled updates Value — don't commit here.
+        if (Mouse.LeftButton == MouseButtonState.Pressed)
+            return;
+
+        EndPositionScrub();
+    }
 
     private void PositionSlider_OnValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
@@ -4426,44 +4763,60 @@ public partial class MainWindow
         if (_positionScrubbing)
             return;
 
-        _positionScrubbing = true;
-        _positionSeekCommitted = false;
+        _positionSeekGeneration++;
         SetPositionRenderActive(false);
+        _positionScrubbing = true;
     }
 
     private void EndPositionScrub()
     {
-        if (!_positionScrubbing || _positionSeekPending)
+        if (!_positionScrubbing)
             return;
 
-        _positionSeekPending = true;
-        Dispatcher.BeginInvoke(() =>
-        {
-            _positionSeekPending = false;
-            if (_positionScrubbing)
-                CommitPositionSeek();
-            _positionScrubbing = false;
-        }, DispatcherPriority.Input);
+        var generation = _positionSeekGeneration;
+        Dispatcher.BeginInvoke(() => CommitPositionSeek(generation), DispatcherPriority.Loaded);
     }
 
-    private void CommitPositionSeek()
+    private void CommitPositionSeek(int generation)
     {
-        if (_positionSeekCommitted || Playback.Duration <= TimeSpan.Zero)
+        if (generation != _positionSeekGeneration)
             return;
 
-        _positionSeekCommitted = true;
+        if (generation == _lastCommittedSeekGeneration)
+            return;
+
+        if (Playback.Duration <= TimeSpan.Zero)
+        {
+            _positionScrubbing = false;
+            UpdatePositionRenderState(syncAnchor: false);
+            return;
+        }
+
+        _lastCommittedSeekGeneration = generation;
 
         var duration = Playback.Duration;
-        var fraction = PositionSlider.Value;
-        var target = TimeSpan.FromSeconds(fraction * duration.TotalSeconds);
-        Playback.Seek(target);
-        SyncPositionAnchor();
-        UpdatePositionRenderState();
+        var target = TimeSpan.FromSeconds(Math.Clamp(PositionSlider.Value, 0, 1) * duration.TotalSeconds);
 
-        _suppressPositionSlider = true;
-        PositionSlider.Value = fraction;
-        _suppressPositionSlider = false;
-        SetPositionLabels(target, duration);
+        Playback.Seek(target);
+        PinPositionChrome(target, duration);
+        _positionScrubbing = false;
+        UpdatePositionRenderState(syncAnchor: true);
+        _smtc?.UpdateTimeline(Playback.Position, duration);
+    }
+
+    private void PinPositionChrome(TimeSpan position, TimeSpan duration)
+    {
+        _positionAnchor = position;
+        _positionAnchorDuration = duration;
+        _positionAnchorUtc = DateTime.UtcNow;
+
+        if (duration.TotalSeconds > 0)
+        {
+            _smoothedSliderFraction = Math.Clamp(position.TotalSeconds / duration.TotalSeconds, 0, 1);
+            SetPositionSliderFraction(_smoothedSliderFraction);
+        }
+
+        SetPositionLabels(position, duration);
     }
 
     private void UpdatePositionLabelsFromSlider()
@@ -4516,7 +4869,8 @@ public partial class MainWindow
             (DateTime.UtcNow - _positionAnchorUtc).TotalSeconds * PlaybackSpeedFactor());
         var errorMs = (actual - predicted).TotalMilliseconds;
 
-        if (Math.Abs(errorMs) > 2000)
+        // Hard-resync when playback is ahead of our clock (we fell behind).
+        if (errorMs > 2000)
         {
             SyncPositionAnchor();
             return;
@@ -4567,14 +4921,14 @@ public partial class MainWindow
         }
     }
 
-    private void UpdatePositionRenderState()
+    private void UpdatePositionRenderState(bool syncAnchor = true)
     {
         var inCrossfade = Playback.IsInCrossfadeTransition;
         var shouldRender = _playbackService?.CurrentTrack is not null
             && (Playback.IsPlaying || inCrossfade)
             && !Playback.IsPaused
             && !_positionScrubbing;
-        if (shouldRender && !_positionRenderActive)
+        if (shouldRender && !_positionRenderActive && syncAnchor)
             SyncPositionAnchor();
         SetPositionRenderActive(shouldRender);
     }
@@ -4590,10 +4944,44 @@ public partial class MainWindow
             return;
         }
 
+        if (Playback.IsInCrossfadeTransition)
+        {
+            UpdatePositionUi(Playback.Position, Playback.Duration, allowBackward: false, crossfadeMonotonic: true);
+            return;
+        }
+
         UpdatePositionUi(GetInterpolatedPosition(), _positionAnchorDuration);
     }
 
-    private void UpdatePositionUi(TimeSpan position, TimeSpan duration, bool allowBackward = false)
+    private void ResetPositionChromeForTrack(LibraryTrack track, bool assumePlaying)
+    {
+        _positionTrackId = track.Id;
+        var duration = track.Duration > TimeSpan.Zero ? track.Duration : Playback.Duration;
+        var position = track.Id == Playback.CurrentTrack?.Id && Playback.Position > TimeSpan.Zero
+            ? Playback.Position
+            : TimeSpan.Zero;
+        var fraction = duration.TotalSeconds > 0
+            ? Math.Clamp(position.TotalSeconds / duration.TotalSeconds, 0, 1)
+            : 0;
+
+        _smoothedSliderFraction = fraction;
+        _positionAnchor = position;
+        _positionAnchorDuration = duration;
+        _positionAnchorUtc = DateTime.UtcNow;
+        SetPositionSliderFraction(fraction);
+        SetPositionLabels(position, duration);
+        if (assumePlaying || Playback.IsPlaying)
+        {
+            UpdatePositionUi(position, duration, allowBackward: true);
+            SetPositionRenderActive(true);
+        }
+    }
+
+    private void UpdatePositionUi(
+        TimeSpan position,
+        TimeSpan duration,
+        bool allowBackward = false,
+        bool crossfadeMonotonic = false)
     {
         if (_positionScrubbing)
             return;
@@ -4601,19 +4989,22 @@ public partial class MainWindow
         if (duration.TotalSeconds > 0)
         {
             var target = Math.Clamp(position.TotalSeconds / duration.TotalSeconds, 0, 1);
-            if (allowBackward)
-                _smoothedSliderFraction += (target - _smoothedSliderFraction) * 0.55;
+            if (crossfadeMonotonic && target + 0.03 < _smoothedSliderFraction)
+            {
+                // Large backward step = desync, not incoming-track crossfade artifact.
+                _smoothedSliderFraction = target;
+            }
+            else if (crossfadeMonotonic)
+                _smoothedSliderFraction = Math.Max(_smoothedSliderFraction, target);
+            else if (_positionRenderActive || allowBackward)
+                _smoothedSliderFraction = target;
             else
                 _smoothedSliderFraction = Math.Max(_smoothedSliderFraction, target);
 
             SetPositionSliderFraction(_smoothedSliderFraction);
         }
 
-        // Keep labels stable on very short tracks; slider still moves every frame.
-        var labelPosition = duration.TotalSeconds < 30
-            ? TimeSpan.FromMilliseconds(Math.Round(position.TotalMilliseconds / 100.0) * 100.0)
-            : position;
-        SetPositionLabels(labelPosition, duration);
+        SetPositionLabels(position, duration);
     }
 
     private void SetPositionSliderFraction(double fraction)
@@ -4641,6 +5032,8 @@ public partial class MainWindow
 
         if (_positionRenderActive)
             ReconcilePositionDrift();
+        else if (Playback.IsInCrossfadeTransition)
+            UpdatePositionUi(Playback.Position, Playback.Duration, crossfadeMonotonic: true);
         else
             UpdatePositionUi(Playback.Position, Playback.Duration, allowBackward: false);
 
@@ -4680,60 +5073,155 @@ public partial class MainWindow
             Playback.Duration);
     }
 
-    private void RefreshNowPlaying()
+    private void ApplyNowPlayingTextAndStats(LibraryTrack track, bool assumePlaying = false)
     {
-        var track = _playbackService?.CurrentTrack;
+        NowPlayingTitle.Text = track.DisplayTitle;
+        NowPlayingArtist.Text = $"{track.DisplayArtist} — {track.DisplayAlbum}";
+        NowPlayingStats.Text = assumePlaying
+            ? FormatStatsForPlaying(track)
+            : string.IsNullOrWhiteSpace(track.PlayStatsLabel) ? "\u00a0" : track.PlayStatsLabel;
+        if (NowPlayingRating is not null)
+        {
+            NowPlayingRating.IsEnabled = true;
+            NowPlayingRating.SyncRating(Math.Clamp(track.Rating, 0, 5));
+        }
+    }
+
+    private static string FormatStatsForPlaying(LibraryTrack track)
+    {
+        var count = Math.Max(1, track.PlayCount + 1);
+        return $"{count} plays · last {DateTime.Now:g}";
+    }
+
+    private void PrefetchNeighborCovers(IReadOnlyList<LibraryTrack>? tracks = null, int startIndex = -1)
+    {
+        tracks ??= Playback.Queue;
+        if (tracks.Count == 0)
+            return;
+
+        var index = startIndex >= 0 ? startIndex : Playback.QueueIndex;
+        if (index < 0)
+            index = 0;
+
+        NowPlayingPrefetch.WarmQueue(tracks, index, NowPlayingCoverPixels);
+    }
+
+    /// <summary>One-shot title/artist/stats/rating/cover — avoids layout jumps from staged updates.</summary>
+    private void ApplyNowPlayingChrome(
+        LibraryTrack? track,
+        ImageSource? coverHint = null,
+        bool assumePlaying = false,
+        bool keepCover = false)
+    {
         if (track is null)
         {
-            NowPlayingTitle.Text = "Nothing playing";
-            NowPlayingArtist.Text = "Select a track to begin";
-            NowPlayingStats.Text = "";
+            if (!keepCover)
+            {
+                _nowPlayingChromeTrackId = -1;
+                _coverHintActive = false;
+                NowPlayingTitle.Text = "Nothing playing";
+                NowPlayingArtist.Text = "Select a track to begin";
+                NowPlayingStats.Text = "\u00a0";
+                SetNowPlayingCoverSmooth(null);
+            }
+            SetPlayPauseIcons(playing: assumePlaying);
             if (NowPlayingRating is not null)
             {
                 NowPlayingRating.IsEnabled = false;
                 NowPlayingRating.SyncRating(0);
             }
-            SetPlayPauseIcons(playing: false);
-            _smoothedSliderFraction = 0;
-            SetPositionSliderFraction(0);
-            SetPositionLabels(TimeSpan.Zero, TimeSpan.Zero);
-            NowPlayingCover.Source = null;
             Tray.UpdateTooltip(null, null);
-            UpdatePlayPauseChrome();
-            _miniPlayer?.Refresh();
+            _smtc?.Update(null, false, false, TimeSpan.Zero, TimeSpan.Zero);
             return;
         }
 
-        // Refresh stats from DB when possible.
-        var live = track.Id > 0 ? Repository.GetTrackById(track.Id) ?? track : track;
+        CoverArtCache.Remember(track);
+        if (_nowPlayingChromeTrackId != track.Id)
+            ResetPositionChromeForTrack(track, assumePlaying);
 
-        NowPlayingTitle.Text = live.DisplayTitle;
-        NowPlayingArtist.Text = $"{live.DisplayArtist} — {live.DisplayAlbum}";
-        NowPlayingStats.Text = live.PlayStatsLabel;
-        if (NowPlayingRating is not null)
-        {
-            NowPlayingRating.IsEnabled = true;
-            NowPlayingRating.SyncRating(Math.Clamp(live.Rating, 0, 5));
-        }
-        SetPlayPauseIcons(Playback.IsPlaying);
+        _nowPlayingChromeTrackId = track.Id;
+        ApplyNowPlayingTextAndStats(track, assumePlaying);
+        SetPlayPauseIcons(assumePlaying || Playback.IsPlaying);
         UpdatePlayPauseChrome();
+        Tray.UpdateTooltip(track.DisplayTitle, track.DisplayArtist);
+        _smtc?.UpdateMetadata(track);
+
+        var generation = ++_nowPlayingCoverGeneration;
+        var cached = CoverArtCache.WarmSync(track, NowPlayingCoverPixels)
+                     ?? CoverArtCache.GetByAlbum(track.Album, NowPlayingCoverPixels)
+                     ?? coverHint;
+
+        if (cached is not null)
+        {
+            _coverHintActive = true;
+            SetNowPlayingCoverSmooth(cached, immediate: true);
+            _miniPlayer?.Refresh();
+            PrefetchNeighborCovers();
+            if (track.CoverArt is not { Length: > 0 })
+                return;
+        }
+        else if (coverHint is not null)
+        {
+            _coverHintActive = true;
+            SetNowPlayingCoverSmooth(coverHint, immediate: true);
+        }
+
+        CoverArtCache.GetOrCreateAsync(track, NowPlayingCoverPixels, bmp =>
+        {
+            if (generation != _nowPlayingCoverGeneration || bmp is null)
+                return;
+
+            _coverHintActive = false;
+            SetNowPlayingCoverSmooth(bmp, immediate: true);
+            _miniPlayer?.Refresh();
+        });
+        PrefetchNeighborCovers();
+    }
+
+    private void RefreshNowPlayingSecondary(LibraryTrack track)
+    {
+        // Stats/rating are painted once in ApplyNowPlayingChrome — do not re-fetch here.
         UpdateShuffleRepeatChrome();
-        Tray.UpdateTooltip(live.DisplayTitle, live.DisplayArtist);
 
         var duration = Playback.Duration;
         var position = Playback.Position;
         if (!_positionScrubbing)
         {
-            SyncPositionAnchor();
+            if (!_positionRenderActive)
+                SyncPositionAnchor();
             UpdatePositionRenderState();
             if (!_positionRenderActive)
-                UpdatePositionUi(position, duration, allowBackward: false);
+            {
+                var allowBackward = position > TimeSpan.Zero;
+                UpdatePositionUi(position, duration, allowBackward: allowBackward);
+            }
         }
 
-        NowPlayingCover.Source = CoverArtHelper.ToBitmap(live.CoverArt, 288, centerCropSquare: true);
         _miniPlayer?.Refresh();
+        UpdatePlayPauseChrome();
+    }
+
+    private void RefreshNowPlaying()
+    {
+        var track = _playbackService?.CurrentTrack;
+        if (track is null)
+        {
+            ApplyNowPlayingChrome(null);
+            _smoothedSliderFraction = 0;
+            SetPositionSliderFraction(0);
+            SetPositionLabels(TimeSpan.Zero, TimeSpan.Zero);
+            UpdatePlayPauseChrome();
+            _miniPlayer?.Refresh();
+            return;
+        }
+
+        if (track.Id != _nowPlayingChromeTrackId)
+            ApplyNowPlayingChrome(track);
+        else
+            RefreshNowPlayingSecondary(track);
+
         if (ArtistPanel?.Visibility == Visibility.Visible)
-            _ = RefreshArtistPanelAsync(live.DisplayArtist);
+            _ = RefreshArtistPanelAsync(track.DisplayArtist);
     }
 
     private static string FormatTime(TimeSpan t) =>

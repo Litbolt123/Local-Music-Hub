@@ -19,6 +19,7 @@ public sealed class CrossfadeSampleProvider : ISampleProvider
     private Func<TimeSpan>? _getRemaining;
     private Func<HubAudioReader?>? _acquireNextReader;
     private Action<HubAudioReader, ISampleProvider>? _onIncomingReserved;
+    private Func<bool>? _canAutoBegin;
     private bool _handedOff;
     private CrossfadeHandoffEventArgs? _pendingHandoff;
 
@@ -40,11 +41,13 @@ public sealed class CrossfadeSampleProvider : ISampleProvider
     public void ConfigureTransition(
         Func<TimeSpan> getRemaining,
         Func<HubAudioReader?> acquireNextReader,
-        Action<HubAudioReader, ISampleProvider>? onIncomingReserved = null)
+        Action<HubAudioReader, ISampleProvider>? onIncomingReserved = null,
+        Func<bool>? canAutoBegin = null)
     {
         _getRemaining = getRemaining;
         _acquireNextReader = acquireNextReader;
         _onIncomingReserved = onIncomingReserved;
+        _canAutoBegin = canAutoBegin;
     }
 
     public void BeginCrossfade(HubAudioReader nextReader)
@@ -100,6 +103,8 @@ public sealed class CrossfadeSampleProvider : ISampleProvider
 
     private void TryBeginCrossfadeNearEnd()
     {
+        if (_canAutoBegin is not null && !_canAutoBegin())
+            return;
         if (IsFading || _pendingHandoff is not null || _getRemaining is null || _acquireNextReader is null)
             return;
 

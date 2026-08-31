@@ -1,3 +1,4 @@
+using System.Windows.Threading;
 using LocalMusicHub.Data;
 using LocalMusicHub.Services;
 
@@ -16,6 +17,7 @@ public partial class MainWindow
     private AcoustIdService? _acoustIdService;
     private ScriptHookService? _scriptHooksService;
     private LyricsPrefetchService? _lyricsPrefetchService;
+    private NowPlayingPrefetchService? _nowPlayingPrefetchService;
 
     private bool _playbackEventsWired;
     private bool _trayEventsWired;
@@ -30,6 +32,9 @@ public partial class MainWindow
     private LibraryRepository Repository => DataServices.Repository;
     private LibraryScanner Scanner => DataServices.Scanner;
     private LibraryFolderWatcher FolderWatcher => DataServices.FolderWatcher;
+
+    private NowPlayingPrefetchService NowPlayingPrefetch =>
+        _nowPlayingPrefetchService ??= new NowPlayingPrefetchService(Repository);
 
     private PlaybackService Playback => EnsurePlayback();
 
@@ -168,29 +173,88 @@ public partial class MainWindow
             return;
 
         _playbackEventsWired = true;
-        _playbackService.TrackChanged += (_, _) => Dispatcher.BeginInvoke(() =>
+        _playbackService.PositionChanged += (_, pos) =>
         {
-            Discord.OnTrackChanged();
-            ScriptHooks.OnTrackChanged(Playback.CurrentTrack);
-            RefreshNowPlaying();
-            RefreshQueueList();
-            UpdateDiscordPresence();
-            UpdateSystemMediaTransportControls();
-            NotifyTrayTrackChanged();
-            NowPlayingStateService.Write(Playback.CurrentTrack, Playback.IsPlaying, Playback.IsPaused);
-            if (_lyricsWindow is { IsLoaded: true } && Playback.CurrentTrack is { } current)
-                _lyricsWindow.ShowTrack(current);
-            _miniPlayer?.Refresh();
-        });
-        _playbackService.StateChanged += (_, _) => Dispatcher.BeginInvoke(() =>
+            void Apply()
+            {
+                if (_positionScrubbing)
+                    return;
+
+                PinPositionChrome(pos, Playback.Duration);
+            }
+
+            if (Dispatcher.CheckAccess())
+                Apply();
+            else
+                Dispatcher.BeginInvoke(DispatcherPriority.Normal, Apply);
+        };
+        _playbackService.TrackPreview += (_, e) =>
         {
-            RefreshNowPlaying();
-            UpdateDiscordPresence();
-            UpdateSystemMediaTransportControls();
-            NowPlayingStateService.Write(Playback.CurrentTrack, Playback.IsPlaying, Playback.IsPaused);
-            _miniPlayer?.Refresh();
-        });
-        _playbackService.QueueChanged += (_, _) => Dispatcher.BeginInvoke(RefreshQueueList);
+            void Apply()
+            {
+                // Crossfade preview must not reset the seek bar while the outgoing track is still playing.
+                if (Playback.IsInCrossfadeTransition)
+                    return;
+
+                if (e.Track is not null && e.Track.Id == _nowPlayingChromeTrackId)
+                    return;
+
+                ApplyNowPlayingChrome(e.Track, assumePlaying: true);
+                if (e.Track is not null)
+                    PrefetchNeighborCovers();
+            }
+
+            if (Dispatcher.CheckAccess())
+                Apply();
+            else
+                Dispatcher.BeginInvoke(DispatcherPriority.Send, Apply);
+        };
+        _playbackService.TrackChanged += (_, _) =>
+        {
+            void OnChanged()
+            {
+                Discord.OnTrackChanged();
+                ScriptHooks.OnTrackChanged(Playback.CurrentTrack);
+                RefreshNowPlaying();
+                RefreshQueueList();
+                UpdateDiscordPresence();
+                UpdateSystemMediaTransportControls();
+                NotifyTrayTrackChanged();
+                NowPlayingStateService.Write(Playback.CurrentTrack, Playback.IsPlaying, Playback.IsPaused);
+                if (_lyricsWindow is { IsLoaded: true } && Playback.CurrentTrack is { } current)
+                    _lyricsWindow.ShowTrack(current);
+            }
+
+            if (Dispatcher.CheckAccess())
+                OnChanged();
+            else
+                Dispatcher.BeginInvoke(DispatcherPriority.Normal, OnChanged);
+        };
+        _playbackService.StateChanged += (_, _) =>
+        {
+            void OnState()
+            {
+                RefreshNowPlaying();
+                UpdateDiscordPresence();
+                UpdateSystemMediaTransportControls();
+                NowPlayingStateService.Write(Playback.CurrentTrack, Playback.IsPlaying, Playback.IsPaused);
+                _miniPlayer?.Refresh();
+            }
+
+            if (Dispatcher.CheckAccess())
+                OnState();
+            else
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, OnState);
+        };
+        _playbackService.QueueChanged += (_, _) =>
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                RefreshQueueList();
+                if (Playback.Queue.Count > 0)
+                    NowPlayingPrefetch.WarmQueue(Playback.Queue, Playback.QueueIndex, NowPlayingCoverPixels);
+            });
+        };
         _playbackService.TrackStarted += Playback_OnTrackStarted;
     }
 

@@ -37,10 +37,17 @@ public sealed class LibraryTrack
 
     public string AudioFilePath => CuePathHelper.ResolveAudioPath(FilePath);
 
-    public string DisplayArtist => string.IsNullOrWhiteSpace(Artist) ? "Unknown Artist" : Artist;
-    public string DisplayAlbum => string.IsNullOrWhiteSpace(Album) ? "Unknown Album" : Album;
-    public string DisplayAlbumArtist => string.IsNullOrWhiteSpace(AlbumArtist) ? DisplayArtist : AlbumArtist;
-    public string DisplayTitle => string.IsNullOrWhiteSpace(Title) ? System.IO.Path.GetFileNameWithoutExtension(FilePath) : Title;
+    public string DisplayArtist => TagTextHelper.Clean(
+        string.IsNullOrWhiteSpace(Artist) ? "Unknown Artist" : Artist, AudioFilePath);
+    public string DisplayAlbum => TagTextHelper.Clean(
+        string.IsNullOrWhiteSpace(Album) ? "Unknown Album" : Album, AudioFilePath);
+    public string DisplayAlbumArtist => string.IsNullOrWhiteSpace(AlbumArtist)
+        ? DisplayArtist
+        : TagTextHelper.Clean(AlbumArtist, AudioFilePath);
+    public string DisplayTitle => TagTextHelper.Clean(
+        string.IsNullOrWhiteSpace(Title) ? System.IO.Path.GetFileNameWithoutExtension(FilePath) : Title,
+        AudioFilePath,
+        titleFromFileName: true);
     public string ListLabel => $"{DisplayTitle}  ·  {DisplayArtist}";
     public string DurationLabel => Duration.TotalHours >= 1
         ? Duration.ToString(@"h\:mm\:ss")

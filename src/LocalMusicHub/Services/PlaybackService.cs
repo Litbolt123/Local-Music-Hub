@@ -25,9 +25,12 @@ public sealed class PlaybackService : IDisposable
     private int? _cueEndMs;
     private HubAudioReader? _crossfadeNextReader;
     private volatile bool _crossfadeTransitionActive;
+    private DateTime _crossfadeSuppressUntilUtc;
+    private bool _suppressCrossfadeForCurrentTrack;
 
     public event EventHandler? StateChanged;
     public event EventHandler? TrackChanged;
+    public event EventHandler<TrackPreviewEventArgs>? TrackPreview;
     public event EventHandler? QueueChanged;
     public event EventHandler<LibraryTrack>? TrackStarted;
     public event EventHandler<TimeSpan>? PositionChanged;
@@ -73,12 +76,33 @@ public sealed class PlaybackService : IDisposable
         get
         {
             var track = CurrentTrack;
+            TimeSpan tagged;
             if (track?.CueStartMs is int start && track.CueEndMs is int end)
-                return TimeSpan.FromMilliseconds(Math.Max(0, end - start));
-            if (track is not null && track.Duration > TimeSpan.Zero)
-                return track.Duration;
-            return ActiveReader?.TotalTime ?? TimeSpan.Zero;
+                tagged = TimeSpan.FromMilliseconds(Math.Max(0, end - start));
+            else if (track is not null && track.Duration > TimeSpan.Zero)
+                tagged = track.Duration;
+            else
+                tagged = TimeSpan.Zero;
+
+            var file = GetReaderPlayableDuration();
+            if (tagged <= TimeSpan.Zero)
+                return file;
+            if (file <= TimeSpan.Zero)
+                return tagged;
+            return tagged < file ? tagged : file;
         }
+    }
+
+    private TimeSpan GetReaderPlayableDuration()
+    {
+        var reader = _gapless?.CurrentReader ?? _reader;
+        if (reader is null)
+            return TimeSpan.Zero;
+
+        var total = reader.TotalTime;
+        if (CurrentTrack?.CueStartMs is int start)
+            total -= TimeSpan.FromMilliseconds(start);
+        return total > TimeSpan.Zero ? total : TimeSpan.Zero;
     }
     public double Volume => _volume;
     public IReadOnlyList<LibraryTrack> Queue => _queue;
@@ -410,6 +434,37 @@ public sealed class PlaybackService : IDisposable
         RaiseState();
     }
 
+    public LibraryTrack? PeekNextTrack()
+    {
+        if (_queue.Count == 0 || _queueIndex < 0)
+            return null;
+
+        if (_queueIndex < _queue.Count - 1)
+            return _queue[_queueIndex + 1];
+
+        if (_repeatMode == PlaybackRepeatMode.All && _queue.Count > 0)
+            return _queue[0];
+
+        return null;
+    }
+
+    public LibraryTrack? PeekPreviousTrack()
+    {
+        if (_queue.Count == 0 || _queueIndex < 0)
+            return null;
+
+        if (Position.TotalSeconds > 3)
+            return CurrentTrack;
+
+        if (_queueIndex > 0)
+            return _queue[_queueIndex - 1];
+
+        if (_repeatMode == PlaybackRepeatMode.All && _queue.Count > 1)
+            return _queue[^1];
+
+        return CurrentTrack;
+    }
+
     public void Previous()
     {
         if (_queue.Count == 0)
@@ -448,17 +503,61 @@ public sealed class PlaybackService : IDisposable
 
     public void Seek(TimeSpan position)
     {
-        var reader = ActiveReader;
+        var track = CurrentTrack;
+        if (track is null)
+            return;
+
+        var reader = _gapless?.CurrentReader ?? _reader;
         if (reader is null)
             return;
 
-        var max = Duration.TotalSeconds;
-        var relative = TimeSpan.FromSeconds(Math.Clamp(position.TotalSeconds, 0, max));
+        var max = Duration;
+        if (max <= TimeSpan.Zero)
+            return;
+
+        // Stay off true EOF so WASAPI does not treat the seek as "track finished."
+        var maxSeek = max > TimeSpan.FromMilliseconds(250)
+            ? max - TimeSpan.FromMilliseconds(80)
+            : max;
+
+        var relative = TimeSpan.FromSeconds(Math.Clamp(position.TotalSeconds, 0, maxSeek.TotalSeconds));
         var target = relative;
-        if (CurrentTrack?.CueStartMs is int startMs)
+        if (track.CueStartMs is int startMs)
             target += TimeSpan.FromMilliseconds(startMs);
-        reader.CurrentTime = target;
+
+        CancelCrossfadeForSeek();
+        try
+        {
+            reader.CurrentTime = target;
+        }
+        catch
+        {
+            /* some decoders reject seeks very near EOF */
+        }
+
+        _speedProvider?.ResetInterpolation();
+        PreloadNextTrack();
+        _suppressCrossfadeForCurrentTrack = true;
+        _crossfadeSuppressUntilUtc = DateTime.UtcNow.AddSeconds(2);
         PositionChanged?.Invoke(this, relative);
+    }
+
+    private void CancelCrossfadeForSeek()
+    {
+        var hadOverlap = IsInCrossfadeTransition
+            || _crossfade is { IsFading: true }
+            || _crossfade is { HasPendingHandoff: true }
+            || _gapless?.HasIncoming == true;
+
+        if (!hadOverlap)
+            return;
+
+        _crossfade?.Clear();
+        _crossfadeTransitionActive = false;
+        _gapless?.ClearIncoming();
+        _crossfadeNextReader?.Dispose();
+        _crossfadeNextReader = null;
+        ApplyReplayGainForCurrentTrack();
     }
 
     public bool TryAdvanceAtCueEnd()
@@ -580,8 +679,9 @@ public sealed class PlaybackService : IDisposable
     private void LoadCurrent(bool play, int skipBudget)
     {
         LastError = null;
-        StopInternal();
         var track = CurrentTrack;
+        RaiseTrackPreview(track);
+        StopInternal();
         if (track is null)
         {
             LastError = "No track in queue.";
@@ -619,7 +719,8 @@ public sealed class PlaybackService : IDisposable
                 _crossfade.ConfigureTransition(
                     GetRemainingForCrossfade,
                     AcquireCrossfadeNextReader,
-                    ReserveCrossfadeIncoming);
+                    ReserveCrossfadeIncoming,
+                    CanAutoBeginCrossfade);
                 _crossfade.CrossfadeStarted += Crossfade_OnStarted;
                 _crossfade.CrossfadeCompleted += Crossfade_OnCompleted;
             }
@@ -627,6 +728,7 @@ public sealed class PlaybackService : IDisposable
             if (track.CueStartMs is int cueStart)
                 _reader.CurrentTime = TimeSpan.FromMilliseconds(cueStart);
             _cueEndMs = track.CueEndMs;
+            _suppressCrossfadeForCurrentTrack = false;
 
             PreloadNextTrack();
 
@@ -683,6 +785,9 @@ public sealed class PlaybackService : IDisposable
             return;
 
         var nextTrack = _queue[_queueIndex + 1];
+        CoverArtCache.Warm(nextTrack, 128);
+        if (_queueIndex > 0)
+            CoverArtCache.Warm(_queue[_queueIndex - 1], 128);
         if (!File.Exists(nextTrack.AudioFilePath))
             return;
 
@@ -748,11 +853,16 @@ public sealed class PlaybackService : IDisposable
         return reader;
     }
 
+    private bool CanAutoBeginCrossfade() =>
+        App.Settings.CrossfadeEnabled
+        && !_suppressCrossfadeForCurrentTrack
+        && DateTime.UtcNow >= _crossfadeSuppressUntilUtc;
+
     private void TryBeginCrossfadeNearEnd()
     {
-        if (_crossfade is null || _crossfadeNextReader is null || _crossfade.IsFading || _crossfade.HasPendingHandoff)
+        if (!CanAutoBeginCrossfade())
             return;
-        if (!App.Settings.CrossfadeEnabled)
+        if (_crossfade is null || _crossfadeNextReader is null || _crossfade.IsFading || _crossfade.HasPendingHandoff)
             return;
 
         var remaining = GetRemainingForCrossfade();
@@ -773,6 +883,8 @@ public sealed class PlaybackService : IDisposable
     private void Crossfade_OnStarted(object? sender, EventArgs e)
     {
         _crossfadeTransitionActive = true;
+        if (_queueIndex >= 0 && _queueIndex < _queue.Count - 1)
+            RaiseTrackPreview(_queue[_queueIndex + 1]);
         RampReplayGainToNextTrack();
     }
 
@@ -804,6 +916,7 @@ public sealed class PlaybackService : IDisposable
         _reader = e.Reader;
         AdvanceQueueAfterCrossfade();
         _cueEndMs = CurrentTrack?.CueEndMs;
+        _suppressCrossfadeForCurrentTrack = false;
         _crossfadeTransitionActive = false;
         _speedProvider?.ResetInterpolation();
 
@@ -845,13 +958,18 @@ public sealed class PlaybackService : IDisposable
 
         _reader = _gapless.CurrentReader;
         _cueEndMs = CurrentTrack?.CueEndMs;
+        _suppressCrossfadeForCurrentTrack = false;
         _speedProvider?.ResetInterpolation();
 
+        RaiseTrackPreview(CurrentTrack);
         PreloadNextTrack();
         TrackChanged?.Invoke(this, EventArgs.Empty);
         MaybeRecordPlay();
         RaiseState();
     }
+
+    private void RaiseTrackPreview(LibraryTrack? track) =>
+        TrackPreview?.Invoke(this, new TrackPreviewEventArgs(track));
 
     private void MaybeRecordPlay()
     {
@@ -870,6 +988,7 @@ public sealed class PlaybackService : IDisposable
         if (_isPaused || _reader is null)
             return;
 
+        // Seek() no longer stops output — crossfade EOF may still spuriously stop.
         if (ShouldResumeAfterSpuriousStop())
         {
             try { _output?.Play(); } catch { /* ignore */ }
@@ -920,15 +1039,11 @@ public sealed class PlaybackService : IDisposable
         if (_crossfade is { IsFading: true } or { HasPendingHandoff: true })
             return true;
 
-        var reader = ActiveReader;
-        if (reader is null)
+        var duration = Duration;
+        if (duration <= TimeSpan.FromMilliseconds(500))
             return false;
 
-        var total = reader.TotalTime;
-        if (total <= TimeSpan.FromMilliseconds(500))
-            return false;
-
-        return reader.CurrentTime + TimeSpan.FromMilliseconds(250) < total;
+        return Position + TimeSpan.FromMilliseconds(250) < duration;
     }
 
     private void RebuildPlaybackOrder(LibraryTrack? preserveTrack, int preferredIndex)

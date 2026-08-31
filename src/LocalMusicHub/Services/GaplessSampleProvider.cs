@@ -111,6 +111,28 @@ public sealed class GaplessSampleProvider : ISampleProvider
             ThreadPool.QueueUserWorkItem(_ => outgoing.Dispose());
     }
 
+    /// <summary>
+    /// Drops a reserved incoming stream (crossfade overlap) without tearing down the current track.
+    /// </summary>
+    public void ClearIncoming()
+    {
+        HubAudioReader? outgoingIncoming = null;
+        lock (_gate)
+        {
+            outgoingIncoming = _incomingReader;
+            _incomingReader = null;
+            _incomingSamples = null;
+        }
+
+        if (outgoingIncoming is not null)
+            ThreadPool.QueueUserWorkItem(_ => outgoingIncoming.Dispose());
+    }
+
+    public bool HasIncoming
+    {
+        get { lock (_gate) return _incomingReader is not null; }
+    }
+
     public void PreloadNext(HubAudioReader reader)
     {
         lock (_gate)

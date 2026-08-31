@@ -254,3 +254,45 @@ Also read `GitHub projects\docs\app-development-pipeline.md` section 10.
 **Verify:** Click last quarter of a song with crossfade on — audio stays on this track at that time and continues; bar holds.
 
 **Do not regress:** Do not start a next-track crossfade immediately after a user seek into the fade window.
+
+## 2026-08-30 — Hub seek bar: process that shipped (v0.13.52 playtest)
+
+**Playtest:** August: “All those things are working now.” Published `v0.13.52`.
+
+**Symptom (sequence, one at a time):** Bar moved but audio didn’t; failed near song end; pause showed real time; repeat forward clicks UI-only; stutter/glitch after stacked patches; last quarter of bar skipped to next track. Separate: Oxygène/Équinoxe diamond in title.
+
+**Failed (do not retry):**
+- Stop/Play WASAPI on every seek (EOF `PlaybackStopped` advanced the queue).
+- Pin UI to click while decode lagged, then backward drift resync (`errorMs < -750`) for the rest of the song.
+- ApplicationIdle seek retry; 75ms debounce; 2s grace + per-frame clamp fighting the bar.
+- Filename fallback for U+FFFD when the **file name itself** is U+FFFD (YouTube FLACs).
+- Launching without `scripts/build-release.ps1` — August tested a stale exe.
+
+**Worked (shipped state):**
+- Seek = set `reader.CurrentTime` + `ResetInterpolation` only. Cancel crossfade if overlapping. Pin bar to the **click target**.
+- Duration = min(tag, reader.TotalTime). Clamp seek 80ms before EOF. After a user seek, `_suppressCrossfadeForCurrentTrack` until the track changes.
+- Slider `LargeChange=0.01` (0–1 range; default 1 jumped to the end).
+- Titles: recover UTF-8 from FLAC **DESCRIPTION** (`U+FFFD` → `\p{L}` line match); repair SQLite on library open.
+- Process: one symptom → smallest change → **rebuild then launch** → August playtests (screenshot if needed) → write Failed/Worked **same turn** → only then publish.
+
+**Verify:** Click/drag mid-song and last quarter (crossfade on); spam clicks; Oxygène/Équinoxe accents; tray Quit.
+
+**Do not regress:** Do not restack Stop/Play, grace/clamp/retry on the seek bar. Keep v0.13.34 now-playing gold standard. Always rebuild before rerun.
+
+## 2026-08-30 — Agent process for Hub playtest loops
+
+**Symptom:** Fixes felt like they degraded; August frustrated; later: if you don’t rebuild, he tests none of the fixes.
+
+**Failed:** Stacking more seek machinery on each screenshot; treating chat as memory; publishing before he said it worked; skipping rebuild.
+
+**Worked:**
+1. Read vault + `docs/lessons.md` first.
+2. Name the **class** (seek vs title vs tray) — don’t mix.
+3. Inspect real evidence (screenshot times, SQLite `hex(title)`, FLAC vorbis DESCRIPTION).
+4. Prefer stripping back to a known-good pattern (v0.11 seek) over another layer.
+5. Stop Hub → `scripts/build-release.ps1` → launch. Every time.
+6. After he playtests, write Symptom/Failed/Worked into repo `docs/lessons.md` **and** vault `Projects/Local Music Hub/lessons.md` + `Atlas/Lessons.md`.
+7. Publish only when he says publish: fold `UNRELEASED.md` → `RELEASE_BODY.md`, tag `v`+Version, push, wait for installer CI.
+
+**Do not regress:** Chat history is not this file. Next agent reads lessons, not this conversation.
+

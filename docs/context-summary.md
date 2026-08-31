@@ -1017,3 +1017,8 @@ Shipped full plan except DLNA/Cast:
 
 - **User:** All those things are working now. Publish.
 - **Shipped:** Tag `v0.13.52` — now-playing UX, seek bar, accented titles, settings persist, tray Quit.
+
+## 2026-08-30 — Record process after playtest pass
+
+- **User:** Record what worked and how you fixed it. Your process.
+- **Wrote:** Repo `docs/lessons.md` (shipped seek state + agent process); vault `Projects/Local Music Hub/lessons.md`, `Atlas/Lessons.md`, `People/August.md`, `Memories.md`.

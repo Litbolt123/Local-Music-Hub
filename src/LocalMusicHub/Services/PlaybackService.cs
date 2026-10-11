@@ -54,14 +54,7 @@ public sealed class PlaybackService : IDisposable
             if (reader is null)
                 return TimeSpan.Zero;
 
-            TimeSpan pos;
-            if (CurrentTrack?.CueStartMs is int start)
-                pos = reader.CurrentTime - TimeSpan.FromMilliseconds(start);
-            else
-                pos = reader.CurrentTime;
-
-            if (pos < TimeSpan.Zero)
-                pos = TimeSpan.Zero;
+            var pos = ScaleReaderTimelinePosition(GetRawReaderTimelinePosition(reader));
 
             var duration = Duration;
             if (duration > TimeSpan.Zero && pos > duration)
@@ -75,25 +68,38 @@ public sealed class PlaybackService : IDisposable
     {
         get
         {
-            var track = CurrentTrack;
-            TimeSpan tagged;
-            if (track?.CueStartMs is int start && track.CueEndMs is int end)
-                tagged = TimeSpan.FromMilliseconds(Math.Max(0, end - start));
-            else if (track is not null && track.Duration > TimeSpan.Zero)
-                tagged = track.Duration;
-            else
-                tagged = TimeSpan.Zero;
+            var catalog = GetCatalogDuration();
+            var reader = GetRawReaderDuration();
+            if (reader <= TimeSpan.Zero)
+                return catalog;
+            if (catalog <= TimeSpan.Zero)
+                return reader;
 
-            var file = GetReaderPlayableDuration();
-            if (tagged <= TimeSpan.Zero)
-                return file;
-            if (file <= TimeSpan.Zero)
-                return tagged;
-            return tagged < file ? tagged : file;
+            // BunLabs FLAC can report ~half TotalTime vs TagLib/ffmpeg on some multi-loop game rips.
+            if (catalog > reader + ReaderCatalogDurationSlack)
+                return catalog;
+            // Tags longer than decode (bad TLEN) — keep seek bar inside real PCM.
+            if (reader > catalog + ReaderCatalogDurationSlack)
+                return reader;
+
+            return catalog < reader ? catalog : reader;
         }
     }
 
-    private TimeSpan GetReaderPlayableDuration()
+    private static readonly TimeSpan ReaderCatalogDurationSlack = TimeSpan.FromMilliseconds(400);
+
+    private TimeSpan GetCatalogDuration()
+    {
+        var track = CurrentTrack;
+        if (track?.CueStartMs is int start && track.CueEndMs is int end)
+            return TimeSpan.FromMilliseconds(Math.Max(0, end - start));
+        if (track is not null && track.Duration > TimeSpan.Zero)
+            return track.Duration;
+
+        return TimeSpan.Zero;
+    }
+
+    private TimeSpan GetRawReaderDuration()
     {
         var reader = _gapless?.CurrentReader ?? _reader;
         if (reader is null)
@@ -103,6 +109,53 @@ public sealed class PlaybackService : IDisposable
         if (CurrentTrack?.CueStartMs is int start)
             total -= TimeSpan.FromMilliseconds(start);
         return total > TimeSpan.Zero ? total : TimeSpan.Zero;
+    }
+
+    private TimeSpan GetRawReaderTimelinePosition(HubAudioReader reader)
+    {
+        if (CurrentTrack?.CueStartMs is int start)
+        {
+            var relative = reader.CurrentTime - TimeSpan.FromMilliseconds(start);
+            return relative < TimeSpan.Zero ? TimeSpan.Zero : relative;
+        }
+
+        return reader.CurrentTime < TimeSpan.Zero ? TimeSpan.Zero : reader.CurrentTime;
+    }
+
+    private bool TryGetReaderCatalogScale(out double catalogPerReaderSecond)
+    {
+        catalogPerReaderSecond = 1.0;
+        var catalog = GetCatalogDuration();
+        var reader = GetRawReaderDuration();
+        if (catalog <= TimeSpan.Zero || reader <= TimeSpan.Zero)
+            return false;
+        if (catalog <= reader + ReaderCatalogDurationSlack)
+            return false;
+
+        catalogPerReaderSecond = catalog.TotalSeconds / reader.TotalSeconds;
+        return true;
+    }
+
+    private TimeSpan ScaleReaderTimelinePosition(TimeSpan rawReaderTimeline)
+    {
+        if (rawReaderTimeline < TimeSpan.Zero)
+            rawReaderTimeline = TimeSpan.Zero;
+
+        if (!TryGetReaderCatalogScale(out var scale))
+            return rawReaderTimeline;
+
+        return TimeSpan.FromSeconds(rawReaderTimeline.TotalSeconds * scale);
+    }
+
+    private TimeSpan UnscaleToReaderTimeline(TimeSpan catalogTimeline)
+    {
+        if (catalogTimeline < TimeSpan.Zero)
+            catalogTimeline = TimeSpan.Zero;
+
+        if (!TryGetReaderCatalogScale(out var scale))
+            return catalogTimeline;
+
+        return TimeSpan.FromSeconds(catalogTimeline.TotalSeconds / scale);
     }
     public double Volume => _volume;
     public IReadOnlyList<LibraryTrack> Queue => _queue;
@@ -521,7 +574,7 @@ public sealed class PlaybackService : IDisposable
             : max;
 
         var relative = TimeSpan.FromSeconds(Math.Clamp(position.TotalSeconds, 0, maxSeek.TotalSeconds));
-        var target = relative;
+        var target = UnscaleToReaderTimeline(relative);
         if (track.CueStartMs is int startMs)
             target += TimeSpan.FromMilliseconds(startMs);
 
@@ -576,8 +629,6 @@ public sealed class PlaybackService : IDisposable
         App.Settings.DefaultVolume = _volume;
         if (_volumeProvider is not null)
             _volumeProvider.MasterVolume = (float)_volume;
-        // Keep device volume at unity — Wasapi endpoint volume buzzes when scrubbed.
-        ApplyUnityOutputVolume();
     }
 
     public void ReloadOutputSettings()
@@ -595,7 +646,7 @@ public sealed class PlaybackService : IDisposable
 
         try
         {
-            RecreateOutput();
+            RecreateOutput(forceNewDevice: true);
             if (position > TimeSpan.Zero)
                 Seek(position);
 
@@ -621,17 +672,32 @@ public sealed class PlaybackService : IDisposable
         RaiseState();
     }
 
-    private void RecreateOutput()
+    private void RecreateOutput(bool forceNewDevice = false)
     {
         if (_sampleProvider is null)
             return;
 
-        if (_output is not null)
+        var wrapped = new FullBufferSampleProvider(_sampleProvider);
+
+        if (!forceNewDevice && _output is not null)
         {
             _output.PlaybackStopped -= Output_OnPlaybackStopped;
             try { _output.Stop(); } catch { /* ignore */ }
-            _output.Dispose();
-            _output = null;
+            try
+            {
+                _output.Init(wrapped);
+                _output.PlaybackStopped += Output_OnPlaybackStopped;
+                SyncMasterVolumeToProvider();
+                return;
+            }
+            catch
+            {
+                DisposeOutput();
+            }
+        }
+        else
+        {
+            DisposeOutput();
         }
 
         var settings = App.Settings;
@@ -640,8 +706,12 @@ public sealed class PlaybackService : IDisposable
             settings.OutputDeviceId,
             settings.OutputLatencyMs);
         _output.PlaybackStopped += Output_OnPlaybackStopped;
-        _output.Init(new FullBufferSampleProvider(_sampleProvider));
-        ApplyUnityOutputVolume();
+        _output.Init(wrapped);
+        SyncMasterVolumeToProvider();
+    }
+
+    private void SyncMasterVolumeToProvider()
+    {
         if (_volumeProvider is not null)
             _volumeProvider.MasterVolume = (float)_volume;
     }
@@ -681,7 +751,7 @@ public sealed class PlaybackService : IDisposable
         LastError = null;
         var track = CurrentTrack;
         RaiseTrackPreview(track);
-        StopInternal();
+        ReleasePlaybackPipeline();
         if (track is null)
         {
             LastError = "No track in queue.";
@@ -830,14 +900,7 @@ public sealed class PlaybackService : IDisposable
         if (reader is null)
             return TimeSpan.Zero;
 
-        TimeSpan position;
-        if (CurrentTrack?.CueStartMs is int start)
-            position = reader.CurrentTime - TimeSpan.FromMilliseconds(start);
-        else
-            position = reader.CurrentTime;
-
-        if (position < TimeSpan.Zero)
-            position = TimeSpan.Zero;
+        var position = ScaleReaderTimelinePosition(GetRawReaderTimelinePosition(reader));
 
         var remaining = duration - position;
         return remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining;
@@ -1134,20 +1197,31 @@ public sealed class PlaybackService : IDisposable
 
     private void StopInternal()
     {
-        if (_output is not null)
-        {
-            _output.PlaybackStopped -= Output_OnPlaybackStopped;
-            _output.Stop();
-            _output.Dispose();
-            _output = null;
-        }
+        DisposeOutput();
+        ReleasePlaybackPipeline();
+        _isPaused = false;
+    }
 
+    private void DisposeOutput()
+    {
+        if (_output is null)
+            return;
+
+        _output.PlaybackStopped -= Output_OnPlaybackStopped;
+        try { _output.Stop(); } catch { /* ignore */ }
+        _output.Dispose();
+        _output = null;
+    }
+
+    private void ReleasePlaybackPipeline()
+    {
         _crossfade?.Clear();
         if (_crossfade is not null)
         {
             _crossfade.CrossfadeStarted -= Crossfade_OnStarted;
             _crossfade.CrossfadeCompleted -= Crossfade_OnCompleted;
         }
+
         _gapless?.Clear();
         if (_gapless is not null)
             _gapless.TrackAdvanced -= Gapless_OnTrackAdvanced;
@@ -1162,7 +1236,6 @@ public sealed class PlaybackService : IDisposable
         _replayGainLinear = 1f;
         _gapless = null;
         _crossfade = null;
-        _isPaused = false;
     }
 
     private void ApplyReplayGainForCurrentTrack()
@@ -1175,28 +1248,6 @@ public sealed class PlaybackService : IDisposable
         _replayGainLinear = (float)Math.Pow(10, gainDb / 20.0);
         if (_volumeProvider is not null)
             _volumeProvider.Volume = _replayGainLinear;
-    }
-
-    private void ApplyLiveVolume()
-    {
-        ApplyReplayGainForCurrentTrack();
-        if (_volumeProvider is not null)
-            _volumeProvider.MasterVolume = (float)_volume;
-        ApplyUnityOutputVolume();
-    }
-
-    private void ApplyUnityOutputVolume()
-    {
-        if (_output is null)
-            return;
-        try
-        {
-            _output.Volume = 1f;
-        }
-        catch
-        {
-            /* ignore */
-        }
     }
 
     private void RaiseState() => StateChanged?.Invoke(this, EventArgs.Empty);

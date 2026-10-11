@@ -5,6 +5,10 @@
 - **`move_agent_to_root` does not work** here ? never call it. Stay on home workspace and use absolute paths under `GitHub projects\` for Local Music Hub / YouTube Downloader.
 - **Release builds** auto-sync to `%LocalAppData%\Programs\LocalMusicHub\` and refresh Start Menu / Desktop shortcuts (`scripts\update-windows-shortcuts.ps1`).
 
+## 2026-09-26 — Tree of Tranquility titles
+
+August asked for the soundtrack names from the khinsider gamerip. Twenty-two FLAC files in `Music\Harvest Moon\Harvest Moon - Tree of Tranquility (Game Rip)` were retitled (Spring, House, Souffle Farm, and the rest that match). The title tag and `library.db` were updated together. Night field tracks use the day name plus `(Night)`. Tracks with no rip title were left alone. Hub was not running, so no rebuild was needed.
+
 ## 2026-07-21 ? Music Hub WAID-style installer upgrade (v0.13.16)
 
 - **User:** Want Local Music Hub to use WAID update flow (download + run installer) instead of manual browser download.
@@ -1022,3 +1026,29 @@ Shipped full plan except DLNA/Cast:
 
 - **User:** Record what worked and how you fixed it. Your process.
 - **Wrote:** Repo `docs/lessons.md` (shipped seek state + agent process); vault `Projects/Local Music Hub/lessons.md`, `Atlas/Lessons.md`, `People/August.md`, `Memories.md`.
+
+## 2026-10-11 — Duration bar vs short tags (v0.13.53)
+
+- **User:** Closed LMH; asked rebuild. Screenshot: *Summer (Night)* at end of bar (1:17) but still playing.
+- **Cause:** v0.13.52 `min(tag, file)` clamped UI duration to short metadata; decoder kept playing full file.
+- **Fix:** `Duration` prefers reader `TotalTime` when playing; bump 0.13.53; rebuild + launch.
+- **Note:** Canonical code at `C:\Users\Augus\Projects\Local Music Hub` (Desktop `GitHub projects\Local Music Hub` folder empty on disk).
+
+## 2026-10-11 — System volume 100% on any interaction (v0.13.55)
+
+- **User:** Track change, play/pause, touch app, in-app volume slider all blast PC volume to 100%.
+- **Cause:** `ApplyUnityOutputVolume()` → `WasapiOut.Volume = 1f` (Windows session volume) on every `SetVolume` + new WASAPI device each track.
+- **Fix:** Sample-chain volume only; reuse output `Init` on skip; ship 0.13.55.
+- **Playtest:** August — “Fixed (:)” — mixer no longer jumps to 100% on slider/skip/play.
+
+## 2026-10-11 — FLAC half TotalTime (v0.13.54)
+
+- **User:** Still stuck at 1:17 while audio continues (playtest after 0.13.53).
+- **Cause:** BunLabs FlacReader reports 77s `TotalTime` / frozen `CurrentTime` for *04 - Summer (Night).flac*; TagLib + DB correctly 154s (intro + loop×2 + fade). Not an LMH “play twice” feature — rip layout + decoder quirk.
+- **Fix:** Scale timeline when catalog duration > reader duration; ship 0.13.54; rebuild + launch.
+- **Playtest:** August — *Summer (Night)* shows ~2:33 total (e.g. 0:15 / -2:18); “correct time is showing now.”
+
+## 2026-10-11 — Publish v0.13.55
+
+- **User:** Publish after playtests (timeline + volume). **Open for next session:** album play → click later song in queue → Previous only goes forward in sequence, not backward through album order.
+- **Shipped:** Tag `v0.13.55` — FLAC timeline scaling, WASAPI volume fix, release notes.

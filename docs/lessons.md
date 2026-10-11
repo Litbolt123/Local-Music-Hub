@@ -296,3 +296,43 @@ Also read `GitHub projects\docs\app-development-pipeline.md` section 10.
 
 **Do not regress:** Chat history is not this file. Next agent reads lessons, not this conversation.
 
+## 2026-10-11 — Seek bar frozen at tag end while audio continues (v0.13.53)
+
+**Symptom:** Track (e.g. Harvest Moon *Summer (Night)*) shows 1:17 / -0:00 on the bar but audio keeps playing to ~2:34; pause may show real position.
+
+**Failed:** `Duration = min(tag, reader.TotalTime)` from v0.13.52 — correct for avoiding seek-past-EOF on **mis-tagged longer files**, wrong when the **file is longer than the tag** (loop/game rips with short ID3 loop length).
+
+**Worked:** While a reader is open, `Duration` returns `GetReaderPlayableDuration()` only; fall back to cue/tag metadata when not playing. Keep seek clamp 80ms before EOF against that reader duration.
+
+**Verify:** Play *Summer (Night)* — bar runs to full file length; seek still works in last quarter; no premature next track.
+
+**Do not regress:** Do not force `min(tag, file)` on the **display duration** during active playback; use reader length for the bar, clamp seeks to reader EOF.
+
+## 2026-10-11 — FLAC decoder reports half duration (v0.13.54)
+
+**Symptom:** *Summer (Night)* bar stuck at ~1:17 / -0:00 while audio plays to ~2:34; pause shows real progress only if you scrub.
+
+**Failed:** Preferring decoder `TotalTime` alone (0.13.53) — BunLabs `FlacReader` reports **77s** while TagLib/ffmpeg and SQLite `duration_ms` are **154s**; `CurrentTime` stops advancing at 77s even though samples decode to EOF.
+
+**Worked:** When catalog duration (library/TagLib) exceeds reader duration by >400ms, treat catalog as truth for `Duration`, scale `Position` and inverse-scale `Seek`; keep min(tag, reader) when tags are **longer** than PCM.
+
+**Verify:** Play *Summer (Night)* — bar runs ~2:34; seek in second half works; normal FLACs unchanged.
+
+**Playtest (2026-10-11):** August — ~2:33 on bar (0:15 / -2:18); confirmed correct.
+
+**Do not regress:** Do not assume `reader.TotalTime` equals file length; probe with `scripts/DurationProbe` if a rip looks “stuck at half.”
+
+## 2026-10-11 — Windows volume jumps to 100% (v0.13.55)
+
+**Symptom:** Changing track, play/pause, touching the app, or moving the in-app volume slider sets PC / mixer volume to 100%.
+
+**Failed:** `ApplyUnityOutputVolume()` setting `_output.Volume = 1f` on every `SetVolume` and `RecreateOutput` — on `WasapiOut` that is **ISimpleAudioVolume** (session volume), not the app’s sample gain.
+
+**Worked:** Remove endpoint volume writes; user volume only via `SmoothVolumeSampleProvider.MasterVolume`. Re-`Init` the same `IWavePlayer` on track change; `forceNewDevice` only when output settings change.
+
+**Verify:** Lower Windows mixer for Local Music Hub; skip tracks and drag in-app slider — mixer level stays put; loudness follows app slider only.
+
+**Playtest (2026-10-11):** August confirmed fixed.
+
+**Do not regress:** Do not set `WasapiOut.Volume` / `IWavePlayer.Volume` for UI volume (buzz fix belongs in the sample chain).
+

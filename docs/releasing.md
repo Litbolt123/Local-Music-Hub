@@ -14,6 +14,7 @@ Tag must be **`v` + Version** (e.g. `v0.13.0`).
 
 1. Bump version in `Directory.Build.props`.
 2. Edit **`docs/RELEASE_BODY.md`** with user-facing bullets (CI requires ≥80 chars).
+   - **Privacy:** Do not name specific test tracks, game soundtracks, or personal rips in public release text — use generic examples only (internal `docs/lessons.md` may keep filenames for debugging).
 3. Commit and push to `main`.
 4. Tag and push:
 

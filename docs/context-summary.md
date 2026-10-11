@@ -1052,3 +1052,4 @@ Shipped full plan except DLNA/Cast:
 
 - **User:** Publish after playtests (timeline + volume). **Open for next session:** album play → click later song in queue → Previous only goes forward in sequence, not backward through album order.
 - **Shipped:** Tag `v0.13.55` — FLAC timeline scaling, WASAPI volume fix, release notes.
+- **User:** Do not put test/rip song names in public release notes — edited `RELEASE_BODY.md`, live GitHub release, `docs/releasing.md` rule.

@@ -7,6 +7,12 @@ Vault index: `C:\Users\Augus\OneDrive\Documents\Obsidian Vault\Atlas\Lessons.md`
 
 Also read `GitHub projects\docs\app-development-pipeline.md` section 10.
 
+## Standing — public release notes (privacy)
+
+**Rule:** `docs/RELEASE_BODY.md` and GitHub Releases must **not** name August’s test tracks, game soundtracks, rip folders, or filenames. Use generic wording (“loop-heavy FLAC”, “multi-segment file”). Internal lessons/context may keep specifics for debugging.
+
+**Verify:** Read release preview before tag; no artist/album/title from playtest library.
+
 ## 2026-08-24 — pairs with Downloader, not streaming
 
 **Failed:** Treating Hub as a streaming client.

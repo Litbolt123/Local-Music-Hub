@@ -240,15 +240,9 @@ public static class UpdateCheckService
             label = label[..48];
 
         var path = Path.Combine(Path.GetTempPath(), $"{SetupPrefix}{label}.exe");
-        try
-        {
-            if (File.Exists(path))
-                File.Delete(path);
-        }
-        catch
-        {
-            path = Path.Combine(Path.GetTempPath(), $"{SetupPrefix}{label}-{Guid.NewGuid():N}.exe");
-        }
+        SweepStaleSetupDownloads(path);
+        if (!await TryDeleteWithRetriesAsync(path, cancellationToken).ConfigureAwait(false))
+            return (null, "Could not replace the installer already in Temp. Close any setup window and try again.");
 
         using var dl = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
         dl.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "LocalMusicHub-InstallerDownload/1.0");
@@ -294,6 +288,56 @@ public static class UpdateCheckService
 
             return (null, ex.Message);
         }
+    }
+
+    public static void SweepStaleSetupDownloads(string? keepPath = null)
+    {
+        string[] files;
+        try
+        {
+            files = Directory.GetFiles(Path.GetTempPath(), SetupPrefix + "*.exe");
+        }
+        catch
+        {
+            return;
+        }
+
+        foreach (var file in files)
+        {
+            if (keepPath is not null &&
+                string.Equals(Path.GetFullPath(file), Path.GetFullPath(keepPath), StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
+            {
+                File.Delete(file);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private static async Task<bool> TryDeleteWithRetriesAsync(string path, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt == 5)
+                    return false;
+                await Task.Delay(TimeSpan.FromMilliseconds(40 * (attempt + 1)), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        return false;
     }
 }
 

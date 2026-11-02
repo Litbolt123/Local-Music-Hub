@@ -1,5 +1,12 @@
 # Context summary
 
+## 2026-11-02 — Temp DB copy audit
+
+- **Ask:** Audit `File.Copy` / `GetTempPath` / `*.sqlite3` temp patterns after a sibling app filled C: with Guid-per-call copies of a ~0.5 GB SQLite file. Fix unbounded temp DB copies.
+- **Found:** Hub opens `library.db` live (`LibraryDatabase` → `%LocalAppData%\LocalMusicHub\library.db`, WAL). No sqlite temp copies. `File.Copy` is only the settings backup in the data folder.
+- **Fix:** Installer download no longer falls back to a new Guid filename in `%TEMP%`. One `LocalMusicHub-Setup-{version}.exe`, delete with retries, sweep other `LocalMusicHub-Setup-*.exe` on download and at startup. Locked target fails the download.
+- **Verify:** Release build of `LocalMusicHub.csproj` (`EnableWindowsTargeting`) succeeded, 0 warnings. Sweep checked by compiling `UpdateCheckService` into a throwaway net8 console: the keep path stayed, Guid-named and other `LocalMusicHub-Setup-*.exe` files were removed, an unrelated file stayed; a second sweep with no keep path removed the remaining setup exe.
+
 ## Agent environment
 
 - **`move_agent_to_root` does not work** here ? never call it. Stay on home workspace and use absolute paths under `GitHub projects\` for Local Music Hub / YouTube Downloader.

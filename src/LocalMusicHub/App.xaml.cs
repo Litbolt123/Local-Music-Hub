@@ -71,6 +71,7 @@ public partial class App : Application
         }
 
         StartupProfiler.Mark("app.single_instance_ok");
+        _ = Task.Run(static () => UpdateCheckService.SweepStaleSetupDownloads());
 
         Settings = AppSettingsService.Load();
         AppSettingsService.EnsureLibraryIngestToken(Settings);

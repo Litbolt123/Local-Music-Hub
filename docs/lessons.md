@@ -13,6 +13,16 @@ Also read `GitHub projects\docs\app-development-pipeline.md` section 10.
 
 **Verify:** Read release preview before tag; no artist/album/title from playtest library.
 
+## Standing — no growing Temp copies of large DBs (2026-11-02)
+
+**Rule:** Never leave growing `%TEMP%` copies of large databases or caches. Read the live file (SQLite WAL). If a copy is required, use one fixed overwrite path per process, delete it with retries, and sweep leftovers at startup. Do not mint a new Guid path per call.
+
+**Audit:** `library.db` opens in place at `%LocalAppData%\LocalMusicHub\library.db` (`LibraryDatabase`). No `*.sqlite3` temp copies. `File.Copy` is only `settings.json` → `settings.json.bak` in that data folder. The update installer was the only `%TEMP%` write; a failed delete used to fall back to `LocalMusicHub-Setup-{version}-{guid}.exe` and leave it. That download now keeps one file per version label, deletes other `LocalMusicHub-Setup-*.exe` files at download and at startup, and fails the download when the target stays locked.
+
+**Verify:** Repo search for `GetTempPath`, `File.Copy`, and `sqlite` shows no database copy into Temp. A second update download must overwrite the same setup exe, not add a Guid-named file.
+
+**Do not regress:** Do not copy `library.db` into Temp. Do not put `Guid.NewGuid()` in a temp database or installer filename.
+
 ## 2026-08-24 — pairs with Downloader, not streaming
 
 **Failed:** Treating Hub as a streaming client.
